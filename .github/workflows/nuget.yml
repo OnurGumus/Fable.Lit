@@ -19,6 +19,19 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
+
+    # Trusted Publishing, so there is no long-lived NuGet key anywhere in this repo.
+    # The job asks GitHub for a signed OIDC token describing this exact repository and
+    # workflow file, nuget.org checks it against the policy registered under the
+    # ReverseBlade account, and hands back an API key valid for one hour.
+    #
+    # The matching policy names OnurGumus / Fable.Lit / nuget.yml and no environment.
+    # Renaming this file breaks publishing until the policy is updated to match, which
+    # is the point: the file name is part of what is being trusted.
+    permissions:
+      id-token: write
+      contents: read
+
     steps:
       - uses: actions/checkout@v4
         with:
@@ -40,8 +53,12 @@ jobs:
           echo "value=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Publishing $VERSION"
 
+      # The version goes to the build as well as the pack. With it on the pack alone,
+      # `--no-build` below would write the tag's version into the nuspec while the
+      # assembly inside still carried whatever src/Directory.Build.props says, so a
+      # package labelled 2.0.1 would contain an assembly calling itself 2.0.0.
       - name: Build
-        run: dotnet build Fable.Lit.sln -c Release
+        run: dotnet build Fable.Lit.sln -c Release -p:Version=${{ steps.version.outputs.value }}
 
       # Each project by name rather than the solution, which would also try to pack the
       # test and sample projects.
@@ -58,12 +75,25 @@ jobs:
           done
           ls -la nupkgs
 
+      # Last, and deliberately: the key this returns lives for an hour, and each OIDC
+      # token buys exactly one key. Asking before the build would spend it on a run
+      # that might never reach the push.
+      #
+      # `user` is the nuget.org profile name, not an email address. It is on the front
+      # of every package this account owns, so it is written here rather than kept in a
+      # secret; move it to one if that ever stops being true.
+      - name: Exchange the OIDC token for a short-lived key
+        uses: NuGet/login@v1
+        id: login
+        with:
+          user: ReverseBlade
+
       # --skip-duplicate so a re-run after a partial failure pushes what is missing
       # instead of failing on what already landed. The .snupkg symbol packages beside
       # each .nupkg go up with them.
       - name: Push
         run: |
           dotnet nuget push "nupkgs/*.nupkg" \
-            --api-key "${{ secrets.NUGET_API_KEY }}" \
+            --api-key "${{ steps.login.outputs.NUGET_API_KEY }}" \
             --source https://api.nuget.org/v3/index.json \
             --skip-duplicate
