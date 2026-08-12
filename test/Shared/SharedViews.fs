@@ -41,6 +41,11 @@ let afterClosingTag (cls: string) =
 let afterComment (cls: string) =
     html $"""<div><!-- a note --><i class={cls}>text</i></div>"""
 
+/// A view with a handler, for the adoption test: the click is what proves lit created
+/// the event part rather than merely leaving the DOM alone.
+let clickable (onClick: unit -> unit) =
+    html $"""<div class="wrap"><button type="button" class="act" @click={Ev(fun _ -> onClick ())}>Press</button></div>"""
+
 /// The cases both runtimes render, by name. The differential test walks this list, so
 /// adding one here covers it on both sides at once.
 let cases: (string * TemplateResult) list =
@@ -53,4 +58,5 @@ let cases: (string * TemplateResult) list =
       "grid-empty", grid []
       "grid", grid [ { Name = "Crate"; Qty = 40 }; { Name = "Pallet"; Qty = 2 } ]
       "after-closing-tag", afterClosingTag "wide"
-      "after-comment", afterComment "tall" ]
+      "after-comment", afterComment "tall"
+      "clickable", clickable ignore ]

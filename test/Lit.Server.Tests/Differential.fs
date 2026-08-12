@@ -27,7 +27,9 @@ let ``render every shared case for the browser to compare`` () =
               // The node indices of elements carrying attribute bindings. lit finds
               // these by walking its own generated HTML, so the browser can produce the
               // same list from lit and hold the two side by side.
-              name + "#nodes", String.Join(",", attributeElementIndices template |> Array.map string) ])
+              name + "#nodes", String.Join(",", attributeElementIndices template |> Array.map string)
+              // The same markup with lit's hydration markers, for the adoption test.
+              name + "#hydratable", renderHydratable template ])
         |> dict
 
     // Repo root from the test binary: bin/Debug/net10.0 -> test/Lit.Server.Tests -> test

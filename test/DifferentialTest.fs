@@ -70,6 +70,9 @@ let private digestForTemplateResult (t: TemplateResult) : string = jsNative
 /// attribute name. Walking that HTML the way lit does gives the node indices a
 /// `<!--lit-node N-->` marker has to carry, which is the ground truth the .NET scanner
 /// is measured against.
+[<Import("hydrate", "@lit-labs/ssr-client")>]
+let private hydrate (value: obj) (container: Browser.Types.Node) (options: obj option) : unit = jsNative
+
 [<Import("_$LH", "lit-html")>]
 let private litInternals: obj = jsNative
 
@@ -132,6 +135,46 @@ describe "Differential" <| fun () ->
 
             if fromLit <> fromServer then
                 failwith $"{name}\n  lit:    [{fromLit}]\n  server: [{fromServer}]"
+    }
+
+    // The one that decides whether any of this works: does lit actually adopt the
+    // server's markup?
+    //
+    // Adoption is not observable by looking at the HTML -- markup that was re-rendered
+    // looks identical to markup that was kept. So the test holds on to the element node
+    // before hydrating and asserts it is the *same object* afterwards, and then clicks
+    // the button to prove the event part was created. A wrong node index does not throw:
+    // hydrate breaks out of its loop and the handlers simply never fire, which is
+    // exactly what the click catches.
+    it "lit adopts the server's markup and wires its handlers" <| fun () -> promise {
+        let! expected = fetchJson "/test/server-rendered.json"
+
+        let mutable clicked = 0
+        let template = SharedViews.clickable (fun () -> clicked <- clicked + 1)
+
+        let host = document.createElement "div"
+        document.body.appendChild host |> ignore
+        host.innerHTML <- (expected?("clickable#hydratable"): string)
+
+        let before = host.querySelector "button"
+
+        if isNull before then
+            failwith "the server markup should contain the button"
+
+        hydrate (box template) (host :> Browser.Types.Node) None
+
+        let after = host.querySelector "button"
+
+        if not (obj.ReferenceEquals(before, after)) then
+            failwith "hydrate replaced the button instead of adopting it"
+
+        (after :?> Browser.Types.HTMLElement).click()
+        do! Promise.sleep 0
+
+        if clicked <> 1 then
+            failwith $"the handler did not fire after hydration (clicked = {clicked}); the event part was never created"
+
+        document.body.removeChild host |> ignore
     }
 
     // The port of lit's digest, checked against lit's digest rather than against a

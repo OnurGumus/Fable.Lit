@@ -28,7 +28,14 @@ open HtmlTypeProvider
 type TemplateResult =
     internal
         { Segments: string[]
-          Values: obj[] }
+          Values: obj[]
+          /// 0 an ordinary template, 1 `Lit.nothing`, 2 a sequence from `Lit.ofList`.
+          ///
+          /// Explicit because hydration needs to know which of the three a value is, and
+          /// they are indistinguishable by shape: `Lit.ofList` is a TemplateResult here
+          /// and a plain iterable under Fable, and lit wraps an iterable in a bare part
+          /// marker rather than one carrying a digest.
+          Kind: int }
 
 /// An event handler on its way into a template. The server drops it: a handler is a
 /// closure over client state and there is nothing to serialise. Named to match the
@@ -92,7 +99,8 @@ module Server =
     /// Interprets a template literal as HTML.
     let html (fmt: FormattableString) : TemplateResult =
         { Segments = splitFormat fmt.Format
-          Values = fmt.GetArguments() }
+          Values = fmt.GetArguments()
+          Kind = 0 }
 
     /// Where a hole sits, and which node it belongs to.
     type internal Hole =
@@ -292,6 +300,18 @@ module Server =
     /// lit's digest of this template.
     let digest (t: TemplateResult) = digestOf t.Segments
 
+    /// The single value `Lit.nothing` hands out.
+    ///
+    /// One instance rather than a fresh record per access, so it can be recognised by
+    /// reference when markers are emitted. It matters: on the Fable side `Lit.nothing`
+    /// is lit's own sentinel, which hydrate treats as a leaf and expects a bare
+    /// `<!--lit-part-->` for. Emitting a digest marker for it, as would happen if it
+    /// were an ordinary template, is a mismatch and a thrown error.
+    let internal nothingSentinel: TemplateResult =
+        { Segments = [| "" |]
+          Values = [||]
+          Kind = 1 }
+
     /// The text a value contributes in text position.
     ///
     /// Through `Node.Text`, so the encoding is HtmlTypeProvider's rather than a second
@@ -299,32 +319,108 @@ module Server =
     /// text binding, so markup in a value can never be parsed as HTML on the client. A
     /// server renderer that emitted it raw would not be slightly different, it would be
     /// a hole in the site.
-    let rec private textNode (value: obj) : Node =
+    let rec private textNode (hydratable: bool) (value: obj) : Node =
         match value with
         | null -> Node.Empty()
         | :? EvHandler -> Node.Empty()
-        | :? TemplateResult as t -> toNode t
-        | :? seq<TemplateResult> as items -> items |> Seq.map toNode |> Node.Fragment
+        | :? TemplateResult as t when t.Kind = 2 ->
+            // A sequence: each item is a child part of its own inside the iterable's.
+            match t.Values.[0] with
+            | :? seq<TemplateResult> as items -> textNode hydratable (box items)
+            | _ -> Node.Empty()
+        | :? TemplateResult as t -> toNodeCore hydratable false t
+        | :? seq<TemplateResult> as items ->
+            items
+            |> Seq.map (fun item ->
+                if not hydratable then
+                    toNodeCore false false item
+                else
+                    Node.Fragment
+                        [ Node.RawHtml(childMarker (box item))
+                          toNodeCore true false item
+                          Node.RawHtml "<!--/lit-part-->" ])
+            |> Node.Fragment
         | :? string as s -> Node.Text s
         | :? bool as b -> Node.Text(if b then "true" else "false")
         | v -> Node.Text(string v)
 
-    /// The template as a `Node`, ready to compose into a page.
-    and toNode (t: TemplateResult) : Node =
+    /// What hydrate() expects around a value in text position.
+    ///
+    /// A bare `<!--lit-part-->` for anything it treats as a leaf, and a marker carrying
+    /// the template's digest when the value is itself a template, because that is what
+    /// it compares against on the way in. An iterable opens its own part and each item
+    /// opens one inside it, which is the shape openChildPart builds when it pushes an
+    /// 'iterable' state.
+    and private childMarker (value: obj) =
+        match value with
+        // A template carries its digest. `nothing` and a sequence do not: lit sees the
+        // first as a leaf and the second as an iterable, and gives both a bare marker.
+        | :? TemplateResult as t when t.Kind = 0 -> $"<!--lit-part {digestOf t.Segments}-->"
+        | _ -> "<!--lit-part-->"
+
+    /// The template as a `Node`.
+    ///
+    /// One code path for both kinds of output, because two would drift: the markers are
+    /// the only difference between HTML a browser shows and HTML lit can adopt, and a
+    /// second renderer that emitted them would eventually disagree with this one about
+    /// something else.
+    and internal toNodeCore (hydratable: bool) (isRoot: bool) (t: TemplateResult) : Node =
         let parts = ResizeArray<Node>()
+
+        // Node markers have to be written in front of the element they name, so their
+        // positions are worked out before anything is emitted.
+        let markersBySegment =
+            if not hydratable then
+                dict []
+            else
+                (analyze t.Segments).NodeMarkers
+                |> List.groupBy (fun (segment, _, _) -> segment)
+                |> List.map (fun (segment, group) ->
+                    segment, group |> List.map (fun (_, offset, index) -> offset, index) |> List.sortBy fst)
+                |> dict
+
+        // Only the outermost template opens a part of its own. A nested one is already
+        // inside the marker its hole wrote, and a second would be an extra part that
+        // hydrate is not expecting.
+        if hydratable && isRoot then
+            parts.Add(Node.RawHtml $"<!--lit-part {digestOf t.Segments}-->")
 
         for i in 0 .. t.Segments.Length - 1 do
             let segment = t.Segments.[i]
 
+            // The segment, with a `<!--lit-node N-->` written in front of every element
+            // that carries attribute bindings.
+            let emitSegment (upTo: int) =
+                let inserts =
+                    match markersBySegment.TryGetValue i with
+                    | true, list -> list |> List.filter (fun (offset, _) -> offset < upTo)
+                    | _ -> []
+
+                let mutable last = 0
+
+                for offset, index in inserts do
+                    parts.Add(Node.RawHtml(segment.Substring(last, offset - last)))
+                    parts.Add(Node.RawHtml $"<!--lit-node {index}-->")
+                    last <- offset
+
+                parts.Add(Node.RawHtml(segment.Substring(last, upTo - last)))
+
             if i >= t.Values.Length then
-                parts.Add(Node.RawHtml segment)
+                emitSegment segment.Length
             else
                 let value = t.Values.[i]
                 let m = binding.Match(segment)
 
                 if not m.Success then
-                    parts.Add(Node.RawHtml segment)
-                    parts.Add(textNode value)
+                    emitSegment segment.Length
+
+                    if hydratable then
+                        parts.Add(Node.RawHtml(childMarker value))
+
+                    parts.Add(textNode hydratable value)
+
+                    if hydratable then
+                        parts.Add(Node.RawHtml "<!--/lit-part-->")
                 else
                     let lead = segment.Substring(0, m.Index)
                     let name = m.Groups.["name"].Value
@@ -334,7 +430,7 @@ module Server =
                     // leaves with its value. TrimEnd, or dropping it strands the space
                     // that separated it from the attribute before.
                     | "@"
-                    | "." -> parts.Add(Node.RawHtml(lead.TrimEnd()))
+                    | "." -> emitSegment (lead.TrimEnd().Length)
 
                     // A boolean attribute is present or absent. There is no `false`.
                     | "?" ->
@@ -342,13 +438,13 @@ module Server =
                         | :? bool as on when on ->
                             // The space in front of it separated it from the attribute
                             // before, and is wanted.
-                            parts.Add(Node.RawHtml lead)
+                            emitSegment lead.Length
                             parts.Add(Node.RawHtml name)
                         // Absent, and so is the space that led to it, or the element
                         // renders as `<button >`.
-                        | :? bool -> parts.Add(Node.RawHtml(lead.TrimEnd()))
+                        | :? bool -> emitSegment (lead.TrimEnd().Length)
                         | v ->
-                            parts.Add(Node.RawHtml lead)
+                            emitSegment lead.Length
 
                             raise (
                                 UnsupportedTemplateValue
@@ -356,7 +452,8 @@ module Server =
                             )
 
                     | _ ->
-                        parts.Add(Node.RawHtml(lead + name + "=\""))
+                        emitSegment lead.Length
+                        parts.Add(Node.RawHtml(name + "=\""))
 
                         match value with
                         | null -> ()
@@ -375,12 +472,33 @@ module Server =
 
                         parts.Add(Node.RawHtml "\"")
 
+        if hydratable && isRoot then
+            parts.Add(Node.RawHtml "<!--/lit-part-->")
+
         Node.Fragment parts
+
+    /// The template as a `Node`, ready to compose into a page.
+    let toNode (t: TemplateResult) = toNodeCore false true t
+
+    /// The template as a `Node` lit can adopt.
+    ///
+    /// Opt-in, and off by default, because the markers are an internal protocol of an
+    /// experimental package: emit them and the client must call `hydrate` with the same
+    /// template and data, or throw. See `Lit.Server.md` for the contract, and use the
+    /// client-side helper, which falls back to a plain render rather than leaving a
+    /// half-built page.
+    let toHydratableNode (t: TemplateResult) = toNodeCore true true t
 
     /// The template as an HTML string.
     let render (t: TemplateResult) =
         let sb = StringBuilder()
         (toNode t).Invoke(sb)
+        sb.ToString()
+
+    /// The template as an HTML string lit can adopt.
+    let renderHydratable (t: TemplateResult) =
+        let sb = StringBuilder()
+        (toHydratableNode t).Invoke(sb)
         sb.ToString()
 
     // Below: the template-facing surface a shared view file needs in order to compile on
@@ -397,7 +515,7 @@ module Server =
     type Lit =
         /// Renders nothing. A TemplateResult like any other, because that is how it is
         /// typed on the Fable side: `if x then html $"..." else Lit.nothing` must compile.
-        static member nothing: TemplateResult = { Segments = [| "" |]; Values = [||] }
+        static member nothing: TemplateResult = nothingSentinel
 
         /// Joins the classes whose flag is set. Pure string work on both sides, so this
         /// one is genuinely the same function rather than a stand-in.
@@ -414,4 +532,5 @@ module Server =
         /// walk.
         static member ofList(items: TemplateResult list) : TemplateResult =
             { Segments = [| ""; "" |]
-              Values = [| box (items :> seq<TemplateResult>) |] }
+              Values = [| box (items :> seq<TemplateResult>) |]
+              Kind = 2 }
