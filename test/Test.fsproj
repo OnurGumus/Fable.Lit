@@ -3,16 +3,6 @@
     <TargetFramework>netstandard2.0</TargetFramework>
   </PropertyGroup>
   <ItemGroup>
-    <!-- Vendored from Fable.Expect 1.1.1, with one character changed. Its HTML comment
-         stripping regex backslash-escapes the exclamation mark, which is harmless in a
-         plain regex but an illegal identity escape under the u flag that Fable 5 now
-         emits. The module threw a SyntaxError on import and took two of the four test
-         files with it before a single test could run.
-
-         Renamed to WebTestRunnerFixed so it does not collide with the package copy,
-         which stays compiled but is imported by nothing here. Delete this file when
-         Fable.Expect ships a build that works under Fable 5. -->
-    <Compile Include="WebTestRunner.fs" />
     <Compile Include="ImportSideEffect.fs" />
     <Compile Include="ImportTemplate.fs" />
     <Compile Include="DirectiveTest.fs" />

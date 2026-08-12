@@ -7,7 +7,7 @@ open Lit
 open Lit.Elmish
 open Expect
 open Expect.Dom
-open WebTestRunnerFixed
+open WebTestRunner
 open Lit.Test
 
 [<Emit("window.getComputedStyle($1).getPropertyValue($0)")>]

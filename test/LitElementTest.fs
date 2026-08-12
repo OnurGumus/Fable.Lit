@@ -4,7 +4,7 @@ open Fable.Core.JsInterop
 open Lit
 open Expect
 open Expect.Dom
-open WebTestRunnerFixed
+open WebTestRunner
 open Lit.Test
 
 let private hmr = HMR.createToken()

@@ -3,7 +3,7 @@ module DirectiveTest
 open Lit
 open Expect
 open Expect.Dom
-open WebTestRunnerFixed
+open WebTestRunner
 open Lit.Test
 
 let mutable private onChangeSideEffect = 0
