@@ -60,13 +60,19 @@ jobs:
       - name: Build
         run: dotnet build Fable.Lit.sln -c Release -p:Version=${{ steps.version.outputs.value }}
 
+      # The gate the earlier version of this file promised and could not have: the suite
+      # is 31 green now, so a red one should stop a release rather than be narrated in a
+      # log nobody reads.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Test
+        run: |
+          npm install
+          npm test
+
       # Each project by name rather than the solution, which would also try to pack the
       # test and sample projects.
-      #
-      # Deliberately not gated on `npm test`. Three directive tests (onChange,
-      # ofPromise, ofImport) have been failing since before this fork existed, and
-      # gating on them would mean never publishing anything. Make this a gate once they
-      # are fixed; until then CI reports them on every push and this does not block.
       - name: Pack
         run: |
           for p in Lit Lit.Elmish Lit.Test Lit.Feliz Lit.React ConstructStyleSheetsPolyfill; do

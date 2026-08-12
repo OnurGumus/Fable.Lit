@@ -9,13 +9,30 @@ open Expect.Dom
 open Lit
 
 /// For LitElements, awaits `el.updateComplete`.
-/// For rest of elements, awaits `window.requestAnimationFrame`.
-/// Ensures that ShadyDOM finished its job if available.
+/// For the rest, awaits the render queue: two macrotasks, which is what this library
+/// schedules its own renders on. Neither path waits for paint.
+///
+/// It used to be one animation frame, and that is a trap rather than a preference.
+/// Chrome suspends `requestAnimationFrame` outright in a tab that is not visible, and
+/// a test runner with any concurrency at all puts every file but one in a background
+/// tab -- so a suite awaiting this hung until the runner's timeout, in exactly the
+/// tests written against plain elements, while every LitElement test beside them
+/// passed on `updateComplete`. Ten of thirty-one here, and the flags that look like
+/// they would fix it (`--disable-renderer-backgrounding` and friends) are already
+/// passed by puppeteer and govern timers and renderer priority, not frames.
+///
+/// A frame was never the right thing to wait for. `HookUtil.runAsync` renders on
+/// `delay 0` -- see the note there about Firefox skipping renders under rAF -- so the
+/// DOM is settled once that macrotask has run, and nothing here needs the browser to
+/// have painted: assertions read `innerText`, serialise the DOM, or call
+/// `getComputedStyle`, which forces style and layout synchronously by itself.
+///
+/// Two ticks rather than one: an update that schedules another update needs the
+/// second, and at four milliseconds it is the cheapest insurance in this file.
 let elementUpdated (el: Element) =
     match box el with
     | :? LitElement as el -> el.updateComplete
-    | _ -> Promise.create(fun resolve _ ->
-        window.requestAnimationFrame(fun _ -> resolve()) |> ignore)
+    | _ -> Promise.sleep 0 |> Promise.bind (fun () -> Promise.sleep 0)
     // Check if ShadyDOM polyfill is being used
     // https://github.com/webcomponents/polyfills/tree/master/packages/shadydom
     |> Promise.map (fun () ->
