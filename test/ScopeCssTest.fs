@@ -2,7 +2,7 @@ module ScopeCssTest
 
 open Expect
 open Expect.Dom
-open WebTestRunner
+open WebTestRunnerFixed
 open Lit
 
 module Expect =
