@@ -15,7 +15,7 @@
   <ItemGroup>
     <!-- For the page template. Lit.Server already depends on the same runtime, so the
          Node a rendered view produces is the Node this template's hole accepts. -->
-    <PackageReference Include="HtmlTypeProvider" Version="0.9.0" />
+    <PackageReference Include="HtmlTypeProvider" Version="0.9.1" />
   </ItemGroup>
   <!-- The page template is read by the type provider at compile time, and MSBuild has
        no idea a .fs depends on an .html: editing the template alone leaves the
