@@ -69,13 +69,14 @@ jobs:
       - name: Test
         run: |
           npm install
+          dotnet test test/Lit.Server.Tests/Lit.Server.Tests.fsproj -c Release
           npm test
 
       # Each project by name rather than the solution, which would also try to pack the
       # test and sample projects.
       - name: Pack
         run: |
-          for p in Lit Lit.Elmish Lit.Test Lit.Feliz Lit.React ConstructStyleSheetsPolyfill; do
+          for p in Lit Lit.Elmish Lit.Test Lit.Feliz Lit.React Lit.Server ConstructStyleSheetsPolyfill; do
             dotnet pack "src/$p/$p.fsproj" -c Release --no-build \
               -o nupkgs -p:Version=${{ steps.version.outputs.value }}
           done

@@ -3,12 +3,16 @@
     <TargetFramework>netstandard2.0</TargetFramework>
   </PropertyGroup>
   <ItemGroup>
+    <!-- The same file the .NET test project compiles. If it stops building on either
+         side, the two template APIs have drifted. -->
+    <Compile Include="Shared\SharedViews.fs" />
     <Compile Include="ImportSideEffect.fs" />
     <Compile Include="ImportTemplate.fs" />
     <Compile Include="DirectiveTest.fs" />
     <Compile Include="HookTest.fs" />
     <Compile Include="LitElementTest.fs" />
     <Compile Include="ScopeCssTest.fs" />
+    <Compile Include="DifferentialTest.fs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\src\Lit.Elmish\Lit.Elmish.fsproj" />

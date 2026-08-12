@@ -26,9 +26,9 @@ jobs:
     # Builds every project, including the sample, which the test run does not cover.
     - name: Build
       run: dotnet build Fable.Lit.sln -c Release
-    # Expected red until the directive tests are fixed: onChange, ofPromise and
-    # ofImport time out at 2000ms, on lit 2 and lit 3 alike, and predate this fork.
-    # Left reporting rather than skipped, because a suite that hides its own failures
-    # is worth less than a red tick.
-    - name: Test
+    # Before npm test: this writes test/server-rendered.json, which the browser-side
+    # differential test fetches to compare lit's DOM against the .NET renderer's HTML.
+    - name: Test (.NET)
+      run: dotnet test test/Lit.Server.Tests/Lit.Server.Tests.fsproj -c Release
+    - name: Test (browser)
       run: npm test

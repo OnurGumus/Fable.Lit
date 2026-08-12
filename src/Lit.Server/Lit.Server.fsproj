@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>Lit.Server.Unofficial</PackageId>
+    <AssemblyName>Lit.Server</AssemblyName>
+    <Description>Renders Fable.Lit templates to HTML on .NET, with no Fable and no JavaScript runtime. The same `html $"..."` view compiles to lit in the browser and to HTML on the server. Part of the unofficial Fable.Lit fork.</Description>
+    <TargetFramework>net10.0</TargetFramework>
+    <DisableImplicitFSharpCoreReference>false</DisableImplicitFSharpCoreReference>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Render.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The escaping, the Node model and the composition point all come from here: a
+         rendered island is a Node, which is exactly what a page template's hole takes,
+         so the two systems meet at a type that already exists rather than at a string. -->
+    <PackageReference Include="HtmlTypeProvider" Version="0.9.0" />
+  </ItemGroup>
+</Project>
