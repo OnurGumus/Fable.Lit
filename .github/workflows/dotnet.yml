@@ -25,7 +25,7 @@ jobs:
       run: npm install
     # Builds every project, including the sample, which the test run does not cover.
     - name: Build
-      run: dotnet build Fable.Lit.sln -c Release
+      run: dotnet build Fable.Lit.slnx -c Release
     # Before npm test: this writes test/server-rendered.json, which the browser-side
     # differential test fetches to compare lit's DOM against the .NET renderer's HTML.
     - name: Test (.NET)

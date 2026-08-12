@@ -58,7 +58,7 @@ jobs:
       # assembly inside still carried whatever src/Directory.Build.props says, so a
       # package labelled 2.0.1 would contain an assembly calling itself 2.0.0.
       - name: Build
-        run: dotnet build Fable.Lit.sln -c Release -p:Version=${{ steps.version.outputs.value }}
+        run: dotnet build Fable.Lit.slnx -c Release -p:Version=${{ steps.version.outputs.value }}
 
       # The gate the earlier version of this file promised and could not have: the suite
       # is 31 green now, so a red one should stop a release rather than be narrated in a

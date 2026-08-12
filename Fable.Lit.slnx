@@ -1,0 +1,22 @@
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Folder Name="/src/">
+    <Project Path="src/ConstructStyleSheetsPolyfill/ConstructStyleSheetsPolyfill.fsproj" />
+    <Project Path="src/Lit.Elmish/Lit.Elmish.fsproj" />
+    <Project Path="src/Lit.Feliz/Lit.Feliz.fsproj" />
+    <Project Path="src/Lit.React/Lit.React.fsproj" />
+    <Project Path="src/Lit.Server/Lit.Server.fsproj" />
+    <Project Path="src/Lit.Test/Lit.Test.fsproj" />
+    <Project Path="src/Lit/Lit.fsproj" />
+  </Folder>
+  <Project Path="sample/Hydrate/Client/Client.fsproj" />
+  <Project Path="sample/Hydrate/Server/Server.fsproj" />
+  <Project Path="sample/Lit.Server.Sample/Lit.Server.Sample.fsproj" />
+  <Project Path="sample/Sample.fsproj" />
+  <Project Path="test/Lit.Server.Tests/Lit.Server.Tests.fsproj" />
+  <Project Path="test/Test.fsproj" />
+</Solution>
