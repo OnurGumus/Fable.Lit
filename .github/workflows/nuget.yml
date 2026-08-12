@@ -1,0 +1,69 @@
+name: Publish to NuGet
+
+# Push a tag, get packages. `git tag v2.0.1 && git push origin v2.0.1` publishes
+# 2.0.1 of all six; the workflow_dispatch input is the same thing without a tag, for
+# a re-run after a failed push.
+#
+# Not on every push to main: these are public package ids and a version can never be
+# taken back, only unlisted. A tag is a deliberate act, which is the property wanted
+# here.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish, without the leading v (e.g. 2.0.1)'
+        required: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # SourceLink stamps the commit into the symbols, and a shallow clone with no
+          # history gives it nothing to stamp.
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      # The tag is the version. `v2.0.1` publishes 2.0.1, and the version in
+      # src/Directory.Build.props is only what a local pack produces.
+      - name: Resolve version
+        id: version
+        run: |
+          VERSION="${{ inputs.version }}"
+          if [ -z "$VERSION" ]; then VERSION="${GITHUB_REF_NAME#v}"; fi
+          echo "value=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Publishing $VERSION"
+
+      - name: Build
+        run: dotnet build Fable.Lit.sln -c Release
+
+      # Each project by name rather than the solution, which would also try to pack the
+      # test and sample projects.
+      #
+      # Deliberately not gated on `npm test`. Three directive tests (onChange,
+      # ofPromise, ofImport) have been failing since before this fork existed, and
+      # gating on them would mean never publishing anything. Make this a gate once they
+      # are fixed; until then CI reports them on every push and this does not block.
+      - name: Pack
+        run: |
+          for p in Lit Lit.Elmish Lit.Test Lit.Feliz Lit.React ConstructStyleSheetsPolyfill; do
+            dotnet pack "src/$p/$p.fsproj" -c Release --no-build \
+              -o nupkgs -p:Version=${{ steps.version.outputs.value }}
+          done
+          ls -la nupkgs
+
+      # --skip-duplicate so a re-run after a partial failure pushes what is missing
+      # instead of failing on what already landed. The .snupkg symbol packages beside
+      # each .nupkg go up with them.
+      - name: Push
+        run: |
+          dotnet nuget push "nupkgs/*.nupkg" \
+            --api-key "${{ secrets.NUGET_API_KEY }}" \
+            --source https://api.nuget.org/v3/index.json \
+            --skip-duplicate

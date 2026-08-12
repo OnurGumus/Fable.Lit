@@ -1,7 +1,14 @@
-name: Publish
+name: Publish docs site
+
+# Renamed from "Publish", which now means NuGet: see nuget.yml. This one builds the
+# nacara documentation site and pushes it to gh-pages.
+#
+# Manual only. It used to run on every push to main, which on a fork means publishing
+# a second copy of somebody else's documentation site, and it would not get that far
+# anyway: it pins node 14.17, which current runners no longer offer. Left otherwise
+# untouched, because modernising nacara is its own job and nothing depends on this
+# site today.
 on:
-  push:
-    branches: [ main ]
   workflow_dispatch:
 jobs:
   build:

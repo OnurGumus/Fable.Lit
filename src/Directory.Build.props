@@ -1,11 +1,41 @@
 <Project>
     <PropertyGroup>
-        <PackageProjectUrl>http://fable.io</PackageProjectUrl>
-        <RepositoryUrl>https://github.com/fable-compiler/Fable.git</RepositoryUrl>
+        <!-- One version for the whole set, because these packages are published
+             together and are only ever tested against each other. Before this, four of
+             the six projects carried a <Version> and a <PackageVersion> that had drifted
+             apart: Lit.Elmish said 2.0.0 and shipped 1.4.0, and NuGet takes the second.
+
+             (No double hyphen in these comments. MSBuild parses this file as XML, where
+             two of them is a parse error that fails every project in the directory.)
+
+             The release workflow overrides this with -p:Version from the tag it was
+             triggered by; what is written here is what a local `dotnet pack` produces. -->
+        <Version>2.0.0</Version>
+        <PackageVersion>$(Version)</PackageVersion>
+
+        <!-- The .Unofficial ids are the point of the fork: this is somebody else's
+             library, republished so a fix can be used before upstream merges it. The
+             authors line says whose library it is, the release notes say why this copy
+             exists, and LICENSE is packed unchanged. If the PRs land, these get
+             deprecated on NuGet pointing at the originals. -->
+        <!-- One entry, not two. NuGet splits this field on semicolons, so the obvious
+             punctuation here turns "contributors" and "unofficial build published by"
+             into two separate authors on the package page. -->
+        <Authors>Alfonso García-Caro Núñez and Fable.Lit contributors (unofficial build published by Onur Gümüş)</Authors>
+        <Copyright>Copyright (c) Alfonso García-Caro Núñez and Fable.Lit contributors</Copyright>
+        <PackageReleaseNotes>Unofficial fork of Fable.Lit. Toolchain moved to .NET 10, Fable 5, Fable.Core 4 and lit 3; event handlers no longer raise FS3884. See the repository for what differs from upstream.</PackageReleaseNotes>
+
+        <!-- Both of these pointed somewhere else: the project url at fable.io, and the
+             repository url at fable-compiler/Fable, which is the compiler rather than
+             this library. SourceLink resolves sources through RepositoryUrl, so it was
+             pointing debuggers at the wrong repository. -->
+        <PackageProjectUrl>https://github.com/OnurGumus/Fable.Lit</PackageProjectUrl>
+        <RepositoryUrl>https://github.com/OnurGumus/Fable.Lit.git</RepositoryUrl>
+        <RepositoryType>git</RepositoryType>
+
         <PackageLicenseFile>LICENSE</PackageLicenseFile>
         <PackageIcon>fable_logo.png</PackageIcon>
-        <PackageTags>fsharp;fable;javascript;f#;js</PackageTags>
-        <Authors>Alfonso García-Caro Núñez</Authors>
+        <PackageTags>fsharp;fable;lit;lit-html;web-components;javascript;f#;js</PackageTags>
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
 
         <!-- For SourceLink. See: https://github.com/dotnet/sourcelink#using-source-link-in-net-projects -->

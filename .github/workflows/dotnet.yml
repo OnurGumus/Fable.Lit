@@ -12,14 +12,23 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
     - name: Setup .NET
-      uses: actions/setup-dotnet@v2.1.0
-    - name: Setup Node.js environment
-      uses: actions/setup-node@v2.4.0
+      uses: actions/setup-dotnet@v4
       with:
-        node-version: 14.17.*
+        dotnet-version: '10.0.x'
+    - name: Setup Node.js environment
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
     - name: Restore dependencies
       run: npm install
+    # Builds every project, including the sample, which the test run does not cover.
+    - name: Build
+      run: dotnet build Fable.Lit.sln -c Release
+    # Expected red until the directive tests are fixed: onChange, ofPromise and
+    # ofImport time out at 2000ms, on lit 2 and lit 3 alike, and predate this fork.
+    # Left reporting rather than skipped, because a suite that hides its own failures
+    # is worth less than a red tick.
     - name: Test
       run: npm test

@@ -1,9 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
-    <PackageId>Fable.Lit.Feliz</PackageId>
-    <Version>1.0.0</Version>
-    <PackageVersion>1.0.0-beta-004</PackageVersion>
+    <PackageId>Fable.Lit.Feliz.Unofficial</PackageId>
+    <Description>Feliz-style API for Fable.Lit. Unofficial build, republished from a fork while fixes are pending upstream.</Description>
     <TargetFramework>netstandard2.0</TargetFramework>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
