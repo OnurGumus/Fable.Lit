@@ -63,6 +63,48 @@ let private fromServer (html: string) =
 [<Import("digestForTemplateResult", "@lit-labs/ssr-client")>]
 let private digestForTemplateResult (t: TemplateResult) : string = jsNative
 
+/// lit's own internals, used the way lit-ssr uses them.
+///
+/// `_getTemplateHtml` turns a template's strings into the HTML lit parses, with a
+/// comment marker where each child binding goes and a `$lit$` suffix on every bound
+/// attribute name. Walking that HTML the way lit does gives the node indices a
+/// `<!--lit-node N-->` marker has to carry, which is the ground truth the .NET scanner
+/// is measured against.
+[<Import("_$LH", "lit-html")>]
+let private litInternals: obj = jsNative
+
+/// The node indices of elements carrying attribute bindings, as lit itself would count
+/// them: a depth-first walk showing elements and comments only, text excluded.
+let private litAttributeNodeIndices (strings: string[]) =
+    let html: obj = litInternals?_getTemplateHtml (strings, 1)
+    let suffix: string = litInternals?_boundAttributeSuffix
+
+    let host = document.createElement "template" :?> Browser.Types.HTMLTemplateElement
+    // getTemplateHtml returns [html, attrNames]; the html is a TrustedHTML-ish wrapper.
+    host.innerHTML <- string (html?(0))
+
+    let walker = document?createTreeWalker (host.content, 129)
+    let found = ResizeArray<int>()
+    let mutable index = -1
+
+    let mutable node = walker?nextNode ()
+
+    while not (isNull node) do
+        index <- index + 1
+
+        if node?nodeType = 1 then
+            let attrs = node?attributes
+            let mutable bound = false
+
+            for i in 0 .. (attrs?length: int) - 1 do
+                if (attrs?(i)?name: string).EndsWith suffix then bound <- true
+
+            if bound then found.Add index
+
+        node <- walker?nextNode ()
+
+    found.ToArray()
+
 describe "Differential" <| fun () ->
     it "the .NET renderer agrees with lit on every shared view" <| fun () -> promise {
         let! expected = fetchJson "/test/server-rendered.json"
@@ -75,6 +117,21 @@ describe "Differential" <| fun () ->
             // mismatch in nothing at all.
             if rendered <> served then
                 failwith $"{name}\n  lit:    {rendered}\n  server: {served}"
+    }
+
+    // The node indices a <!--lit-node N--> marker must carry, checked against lit's own
+    // count. A wrong index does not throw: hydrate breaks out of its loop and the
+    // element's attribute and event parts are never created, so the handlers simply
+    // never fire. That is the failure this test exists to make loud.
+    it "the .NET node indices match lit's own" <| fun () -> promise {
+        let! expected = fetchJson "/test/server-rendered.json"
+
+        for name, template in SharedViews.cases do
+            let fromLit = litAttributeNodeIndices (template?strings) |> Array.map string |> String.concat ","
+            let fromServer: string = expected?(name + "#nodes")
+
+            if fromLit <> fromServer then
+                failwith $"{name}\n  lit:    [{fromLit}]\n  server: [{fromServer}]"
     }
 
     // The port of lit's digest, checked against lit's digest rather than against a

@@ -1,7 +1,13 @@
 // The repository ran without one of these for four years, which is how it ended up
 // depending on defaults that suit a developer laptop and not a CI runner.
 export default {
-  nodeResolve: true,
+  // The development build of lit, not the minified one. Two reasons, and the second is
+  // the load-bearing one: dev builds carry lit's warnings, and the minified build
+  // mangles the internal names on `_$LH` that lit's own SSR uses -- so a test that holds
+  // our node indices against lit's own count can only ask lit for them here.
+  nodeResolve: {
+    exportConditions: ['development'],
+  },
 
   // Thirty seconds is the default, and a GitHub runner misses it: two of the four
   // files reported "the browser was unable to create and start a test page after

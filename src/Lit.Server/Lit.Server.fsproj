@@ -10,6 +10,12 @@
     <Compile Include="Render.fs" />
   </ItemGroup>
   <ItemGroup>
+    <!-- The hydration internals (node indices, the digest) are diagnostics, not API:
+         the tests hold them against lit's own values, and nothing else should depend
+         on them. -->
+    <InternalsVisibleTo Include="Lit.Server.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <!-- The escaping, the Node model and the composition point all come from here: a
          rendered island is a Node, which is exactly what a page template's hole takes,
          so the two systems meet at a type that already exists rather than at a string. -->

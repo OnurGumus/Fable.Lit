@@ -7,6 +7,7 @@
 /// the trees with isEqualNode, which is the question actually worth asking.
 module Lit.Server.Tests.Differential
 
+open System
 open System.IO
 open System.Text.Json
 open Xunit
@@ -22,7 +23,11 @@ let ``render every shared case for the browser to compare`` () =
         SharedViews.cases
         |> List.collect (fun (name, template) ->
             [ name, render template
-              name + "#digest", digest template ])
+              name + "#digest", digest template
+              // The node indices of elements carrying attribute bindings. lit finds
+              // these by walking its own generated HTML, so the browser can produce the
+              // same list from lit and hold the two side by side.
+              name + "#nodes", String.Join(",", attributeElementIndices template |> Array.map string) ])
         |> dict
 
     // Repo root from the test binary: bin/Debug/net10.0 -> test/Lit.Server.Tests -> test
@@ -32,5 +37,8 @@ let ``render every shared case for the browser to compare`` () =
 
     // A guard, so a silently empty file cannot pass as agreement in the browser.
     Assert.NotEmpty(SharedViews.cases)
-    for KeyValue(name, html) in rendered do
-        Assert.False(System.String.IsNullOrWhiteSpace html, $"{name} rendered nothing")
+    // Markup and digests must be non-empty; an empty node list is a real answer, since
+    // a template can carry no attribute bindings at all.
+    for KeyValue(name, value) in rendered do
+        if not (name.EndsWith "#nodes") then
+            Assert.False(String.IsNullOrWhiteSpace value, $"{name} rendered nothing")

@@ -31,6 +31,16 @@ let grid (items: Item list) =
     html
         $"""<div class="card">{toolbar false true}<table class="item-table"><tbody>{Lit.ofList (items |> List.map row)}</tbody></table>{note}</div>"""
 
+/// Node indices are counted over elements and comments, and these two exist to prove
+/// that the counting is right rather than merely plausible: the bound element sits after
+/// a closing tag in one and after a comment in the other, so an index that counted
+/// closing tags, or skipped comments, would be caught here and nowhere else.
+let afterClosingTag (cls: string) =
+    html $"""<div><span>first</span><b class={cls}>second</b></div>"""
+
+let afterComment (cls: string) =
+    html $"""<div><!-- a note --><i class={cls}>text</i></div>"""
+
 /// The cases both runtimes render, by name. The differential test walks this list, so
 /// adding one here covers it on both sides at once.
 let cases: (string * TemplateResult) list =
@@ -41,4 +51,6 @@ let cases: (string * TemplateResult) list =
       // The value that decides whether the two agree about safety, not just about shape.
       "row-with-markup", row { Name = "<script>alert('x')</script>"; Qty = 1 }
       "grid-empty", grid []
-      "grid", grid [ { Name = "Crate"; Qty = 40 }; { Name = "Pallet"; Qty = 2 } ] ]
+      "grid", grid [ { Name = "Crate"; Qty = 40 }; { Name = "Pallet"; Qty = 2 } ]
+      "after-closing-tag", afterClosingTag "wide"
+      "after-comment", afterComment "tall" ]

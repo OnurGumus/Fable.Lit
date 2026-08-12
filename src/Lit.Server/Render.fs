@@ -94,6 +94,165 @@ module Server =
         { Segments = splitFormat fmt.Format
           Values = fmt.GetArguments() }
 
+    /// Where a hole sits, and which node it belongs to.
+    type internal Hole =
+        /// In text position. lit puts a comment marker here, so it occupies a node.
+        | ChildHole
+        /// In a tag, binding an attribute of the element at this node index.
+        | AttrHole of elementIndex: int
+
+    /// What a template looks like to lit's own template walker.
+    ///
+    /// Hydration needs node indices: a `<!--lit-node N-->` marker tells lit which
+    /// element carries attribute bindings, and N is the position of that element in a
+    /// depth-first walk of the parsed template counting *elements and comments only*,
+    /// text excluded. lit computes it with a TreeWalker over the HTML it generates, so
+    /// the two counts must agree exactly.
+    ///
+    /// They agree because the same three things add a node on both sides: an element, a
+    /// literal comment, and a child binding (lit writes a comment marker where the value
+    /// goes). A closing tag adds nothing. An attribute binding adds nothing either; it
+    /// only names the element being opened.
+    ///
+    /// Getting this wrong is quieter than getting the digest wrong. A digest mismatch
+    /// throws; an index mismatch makes hydrate `break` out of its loop
+    /// (hydrate-lit-html.js:285), so the element's attribute and event parts are never
+    /// created and its handlers silently never fire.
+    type internal Analysis =
+        { Holes: Hole[]
+          /// Where to write a `<!--lit-node N-->` marker: segment, offset, index.
+          NodeMarkers: (int * int * int) list }
+
+    let private rawTextTags =
+        System.Collections.Generic.HashSet<string>(
+            [ "script"; "style"; "textarea"; "title" ],
+            StringComparer.OrdinalIgnoreCase)
+
+    /// Walks the literal segments the way an HTML parser would, to place every hole and
+    /// count every node.
+    ///
+    /// A regex on the tail of a segment was enough to tell an attribute binding from a
+    /// text one, and is not enough for this: a `>` inside a quoted attribute value would
+    /// convince it that a tag had ended. So this tracks the same states lit's own
+    /// scanner does -- text, inside a tag, inside a quoted value, inside a comment, and
+    /// inside a raw-text element -- and refuses the cases it does not model rather than
+    /// producing an index that is quietly wrong.
+    let internal analyze (segments: string[]) : Analysis =
+        let holes = ResizeArray<Hole>()
+        let markers = ResizeArray<int * int * int>()
+
+        // Depth-first count of elements and comments, which is what lit's walker counts.
+        let mutable nodeIndex = -1
+        // The element currently being opened, and where its `<` is.
+        let mutable current = -1
+        let mutable currentAt = (0, 0)
+        let mutable currentMarked = false
+
+        let mutable state = 0 // 0 text, 1 in tag, 2 in quoted value, 3 in comment, 4 raw text
+        let mutable quote = '"'
+        let mutable rawTag = ""
+
+        for segIndex in 0 .. segments.Length - 1 do
+            let s = segments.[segIndex]
+            let mutable i = 0
+
+            while i < s.Length do
+                match state with
+                | 0 ->
+                    if i + 3 < s.Length && s.[i] = '<' && s.[i + 1] = '!' && s.[i + 2] = '-' && s.[i + 3] = '-' then
+                        nodeIndex <- nodeIndex + 1
+                        state <- 3
+                        i <- i + 4
+                    elif i + 1 < s.Length && s.[i] = '<' && s.[i + 1] = '/' then
+                        // A closing tag is not a node.
+                        state <- 1
+                        current <- -1
+                        i <- i + 2
+                    elif i + 1 < s.Length && s.[i] = '<' && Char.IsLetter s.[i + 1] then
+                        nodeIndex <- nodeIndex + 1
+                        current <- nodeIndex
+                        currentAt <- (segIndex, i)
+                        currentMarked <- false
+
+                        let nameEnd =
+                            let mutable j = i + 1
+
+                            while j < s.Length && (Char.IsLetterOrDigit s.[j] || s.[j] = '-') do
+                                j <- j + 1
+
+                            j
+
+                        rawTag <- s.Substring(i + 1, nameEnd - i - 1)
+                        state <- 1
+                        i <- nameEnd
+                    else
+                        i <- i + 1
+                | 1 ->
+                    match s.[i] with
+                    | '"'
+                    | '\'' ->
+                        quote <- s.[i]
+                        state <- 2
+                        i <- i + 1
+                    | '>' ->
+                        state <- if rawTextTags.Contains rawTag then 4 else 0
+                        i <- i + 1
+                    | _ -> i <- i + 1
+                | 2 ->
+                    if s.[i] = quote then state <- 1
+                    i <- i + 1
+                | 3 ->
+                    if i + 2 < s.Length && s.[i] = '-' && s.[i + 1] = '-' && s.[i + 2] = '>' then
+                        state <- 0
+                        i <- i + 3
+                    else
+                        i <- i + 1
+                | _ ->
+                    // Raw text: nothing in here starts a node until the element closes.
+                    if i + 1 < s.Length && s.[i] = '<' && s.[i + 1] = '/' then
+                        state <- 1
+                        current <- -1
+                        i <- i + 2
+                    else
+                        i <- i + 1
+
+            // The hole that follows this segment, if there is one.
+            if segIndex < segments.Length - 1 then
+                match state with
+                | 0 ->
+                    // lit writes a comment marker where the value goes, so it counts.
+                    nodeIndex <- nodeIndex + 1
+                    holes.Add ChildHole
+                | 1 ->
+                    if current < 0 then
+                        raise (UnsupportedTemplateValue "A binding inside a closing tag is not supported.")
+
+                    if not currentMarked then
+                        let seg, off = currentAt
+                        markers.Add(seg, off, current)
+                        currentMarked <- true
+
+                    holes.Add(AttrHole current)
+                | 2 ->
+                    raise (
+                        UnsupportedTemplateValue
+                            "A binding inside a quoted attribute value is not supported yet; write it unquoted, as `class={value}`."
+                    )
+                | 3 -> raise (UnsupportedTemplateValue "A binding inside an HTML comment is not supported.")
+                | _ ->
+                    raise (
+                        UnsupportedTemplateValue
+                            $"A binding inside a <{rawTag}> element is not supported: its content is raw text, which lit parses differently."
+                    )
+
+        { Holes = holes.ToArray()
+          NodeMarkers = List.ofSeq markers }
+
+    /// The node indices of the elements carrying attribute bindings, in template order.
+    /// Exposed so a test can hold it against lit's own walk.
+    let internal attributeElementIndices (t: TemplateResult) =
+        (analyze t.Segments).NodeMarkers |> List.map (fun (_, _, index) -> index) |> Array.ofList
+
     /// lit's digest of a template, computed from the same segments lit hashes.
     ///
     /// This is the identifier lit writes into a `<!--lit-part ...-->` marker and checks
