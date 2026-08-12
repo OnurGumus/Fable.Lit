@@ -49,3 +49,8 @@ Hydrating the card puts lit inside its own root marker, where it never finds it.
 **The client must pass the same template and the same data.** A different template is a
 digest mismatch, which throws and is caught by `Hydrate.adopt`. Different data hydrates
 cleanly and then shows values the server never rendered, which nothing catches.
+
+Editing `page.html` and re-running is enough, but only because `Server.fsproj` carries a
+`TouchOnTemplateChange` target. MSBuild does not know a `.fs` depends on an `.html`, so
+without it the provider's cached output survives the rebuild and the old page keeps
+being served, which looks exactly like a change that did nothing.

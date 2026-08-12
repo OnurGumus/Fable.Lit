@@ -14,4 +14,18 @@
   <ItemGroup>
     <PackageReference Include="HtmlTypeProvider" Version="0.9.0" />
   </ItemGroup>
+  <!-- The page template is read by the type provider at compile time, and MSBuild has
+       no idea a .fs depends on an .html: editing the template alone leaves the
+       provider's cached output in place and the old markup keeps being served, which
+       looks exactly like a code change that did nothing. Touching the first file in the
+       compile chain invalidates everything downstream and forces a re-read. Borrowed
+       from BestFitBox's src/Web, where the same trap was found first. -->
+  <ItemGroup>
+    <TemplateFiles Include="page.html" />
+  </ItemGroup>
+  <Target Name="TouchOnTemplateChange" BeforeTargets="CoreCompile"
+          Inputs="@(TemplateFiles)" Outputs="$(IntermediateOutputPath)template.stamp">
+    <Touch Files="..\\Shared\\Views.fs" AlwaysCreate="false" />
+    <Touch Files="$(IntermediateOutputPath)template.stamp" AlwaysCreate="true" />
+  </Target>
 </Project>
