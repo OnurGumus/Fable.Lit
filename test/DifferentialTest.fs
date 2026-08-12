@@ -18,7 +18,9 @@ module DifferentialTest
 open Browser
 open Fable.Core
 open Fable.Core.JsInterop
+open Elmish
 open Lit
+open Lit.Elmish
 open Expect
 open WebTestRunner
 
@@ -203,6 +205,50 @@ describe "Differential" <| fun () ->
 
         if svgs <> 1 then
             failwith $"expected exactly one rendered icon, found {svgs}"
+    }
+
+    // Elmish over server-rendered markup. The point is the first render: it adopts the
+    // DOM the server sent instead of replacing it, and everything after it is an
+    // ordinary Elmish render into DOM lit owns by then.
+    it "an Elmish program adopts the server's markup and then drives it" <| fun () -> promise {
+        let! expected = fetchJson "/test/server-rendered.json"
+
+        let host = document.createElement "div"
+        host.id <- "elmish-host"
+        document.body.appendChild host |> ignore
+        host.innerHTML <- (expected?("counter#hydratable"): string)
+
+        let before = host.querySelector "button"
+
+        let init () = { SharedViews.Count = 0 }, Cmd.none
+
+        let update (msg: SharedViews.Msg) (model: SharedViews.Model) =
+            match msg with
+            | SharedViews.Increment -> { model with SharedViews.Count = model.Count + 1 }, Cmd.none
+
+        Program.mkProgram init update SharedViews.counter
+        |> Program.withLitHydratedOnElement host
+        |> Program.run
+
+        do! Promise.sleep 0
+
+        let after = host.querySelector "button"
+
+        if not (obj.ReferenceEquals(before, after)) then
+            failwith "the Elmish program replaced the server's button instead of adopting it"
+
+        (after :?> Browser.Types.HTMLElement).click()
+        do! Promise.sleep 50
+
+        let shown = (host.querySelector ".n").textContent
+
+        if shown <> "1" then
+            failwith $"dispatch did not reach the view after hydration (shows {shown})"
+
+        if not (obj.ReferenceEquals(before, host.querySelector "button")) then
+            failwith "the update rebuilt the DOM instead of patching the adopted nodes"
+
+        document.body.removeChild host |> ignore
     }
 
     // The port of lit's digest, checked against lit's digest rather than against a

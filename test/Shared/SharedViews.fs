@@ -46,6 +46,16 @@ let afterComment (cls: string) =
 let clickable (onClick: unit -> unit) =
     html $"""<div class="wrap"><button type="button" class="act" @click={Ev(fun _ -> onClick ())}>Press</button></div>"""
 
+// A model-shaped view, for the Elmish hydration test. Nothing here knows about Elmish:
+// a view is a function of a model and a dispatch, and both are ordinary F#.
+type Model = { Count: int }
+
+type Msg = Increment
+
+let counter (model: Model) (dispatch: Msg -> unit) =
+    html
+        $"""<div class="counter"><p class="n">{model.Count}</p><button @click={Ev(fun _ -> dispatch Increment)}>+</button></div>"""
+
 /// The cases both runtimes render, by name. The differential test walks this list, so
 /// adding one here covers it on both sides at once.
 let cases: (string * TemplateResult) list =
@@ -59,4 +69,5 @@ let cases: (string * TemplateResult) list =
       "grid", grid [ { Name = "Crate"; Qty = 40 }; { Name = "Pallet"; Qty = 2 } ]
       "after-closing-tag", afterClosingTag "wide"
       "after-comment", afterComment "tall"
-      "clickable", clickable ignore ]
+      "clickable", clickable ignore
+      "counter", counter { Count = 0 } ignore ]
