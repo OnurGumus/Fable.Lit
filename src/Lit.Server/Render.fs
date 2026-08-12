@@ -94,6 +94,45 @@ module Server =
         { Segments = splitFormat fmt.Format
           Values = fmt.GetArguments() }
 
+    /// lit's digest of a template, computed from the same segments lit hashes.
+    ///
+    /// This is the identifier lit writes into a `<!--lit-part ...-->` marker and checks
+    /// when hydrating, and it is a port of `digestForTemplateResult` in
+    /// @lit-labs/ssr-client. The algorithm is deliberately portable -- its own comment
+    /// lists "easily specifiable and implementable in multiple languages" as a goal --
+    /// but three details decide whether a port is exact or merely usually right:
+    ///
+    ///  * `charCodeAt` returns a UTF-16 code unit and the loop runs to `s.length`, so a
+    ///    character outside the BMP is hashed as its two surrogate halves. .NET's char
+    ///    is also UTF-16, so iterating chars matches; iterating runes would not.
+    ///  * `(h * 33) ^ c` is evaluated as a double, coerced to int32 by the xor, then
+    ///    back to uint32 by the store. The product is small enough to be exact in a
+    ///    double, and xor is bitwise, so wrapping uint32 arithmetic gives the same bits.
+    ///  * The hashes are then read as raw bytes, little-endian, one Latin-1 character
+    ///    each, and base64'd. The byte order is written out here rather than left to
+    ///    BitConverter, which follows the machine.
+    ///
+    /// Verified against lit's own function in the browser rather than against this
+    /// description: see the digest case in test/DifferentialTest.fs.
+    let internal digestOf (segments: string[]) =
+        let hashes = [| 5381u; 5381u |]
+
+        for s in segments do
+            for i in 0 .. s.Length - 1 do
+                hashes.[i % 2] <- (hashes.[i % 2] * 33u) ^^^ uint32 s.[i]
+
+        let bytes =
+            [| for h in hashes do
+                   byte (h &&& 0xFFu)
+                   byte ((h >>> 8) &&& 0xFFu)
+                   byte ((h >>> 16) &&& 0xFFu)
+                   byte ((h >>> 24) &&& 0xFFu) |]
+
+        Convert.ToBase64String bytes
+
+    /// lit's digest of this template.
+    let digest (t: TemplateResult) = digestOf t.Segments
+
     /// The text a value contributes in text position.
     ///
     /// Through `Node.Text`, so the encoding is HtmlTypeProvider's rather than a second

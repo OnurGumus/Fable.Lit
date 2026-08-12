@@ -14,9 +14,15 @@ open Lit
 
 [<Fact>]
 let ``render every shared case for the browser to compare`` () =
+    // Both the markup and lit's digest of the template. The digest is what a
+    // `<!--lit-part ...-->` marker carries and what hydrate() checks, so a port that is
+    // one bit out is a hydration that throws in production. The browser checks it
+    // against lit's own function.
     let rendered =
         SharedViews.cases
-        |> List.map (fun (name, template) -> name, render template)
+        |> List.collect (fun (name, template) ->
+            [ name, render template
+              name + "#digest", digest template ])
         |> dict
 
     // Repo root from the test binary: bin/Debug/net10.0 -> test/Lit.Server.Tests -> test

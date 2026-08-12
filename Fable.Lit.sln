@@ -25,6 +25,8 @@ Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Lit.Server", "src\Lit.Serve
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Lit.Server.Tests", "test\Lit.Server.Tests\Lit.Server.Tests.fsproj", "{497E6637-8BCC-4F40-9688-5155EED6A4C6}"
 EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Lit.Server.Sample", "sample\Lit.Server.Sample\Lit.Server.Sample.fsproj", "{D022C5B9-B501-44F7-9AFE-A286F743F099}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -155,6 +157,18 @@ Global
 		{497E6637-8BCC-4F40-9688-5155EED6A4C6}.Release|x64.Build.0 = Release|Any CPU
 		{497E6637-8BCC-4F40-9688-5155EED6A4C6}.Release|x86.ActiveCfg = Release|Any CPU
 		{497E6637-8BCC-4F40-9688-5155EED6A4C6}.Release|x86.Build.0 = Release|Any CPU
+		{D022C5B9-B501-44F7-9AFE-A286F743F099}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D022C5B9-B501-44F7-9AFE-A286F743F099}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D022C5B9-B501-44F7-9AFE-A286F743F099}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{D022C5B9-B501-44F7-9AFE-A286F743F099}.Debug|x64.Build.0 = Debug|Any CPU
+		{D022C5B9-B501-44F7-9AFE-A286F743F099}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{D022C5B9-B501-44F7-9AFE-A286F743F099}.Debug|x86.Build.0 = Debug|Any CPU
+		{D022C5B9-B501-44F7-9AFE-A286F743F099}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D022C5B9-B501-44F7-9AFE-A286F743F099}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D022C5B9-B501-44F7-9AFE-A286F743F099}.Release|x64.ActiveCfg = Release|Any CPU
+		{D022C5B9-B501-44F7-9AFE-A286F743F099}.Release|x64.Build.0 = Release|Any CPU
+		{D022C5B9-B501-44F7-9AFE-A286F743F099}.Release|x86.ActiveCfg = Release|Any CPU
+		{D022C5B9-B501-44F7-9AFE-A286F743F099}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

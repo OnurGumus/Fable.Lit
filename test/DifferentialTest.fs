@@ -57,6 +57,12 @@ let private fromServer (html: string) =
     stripComments (host.content :> Browser.Types.Node)
     host.innerHTML
 
+/// lit's own digest function, the one hydrate() checks a `<!--lit-part ...-->` marker
+/// against. Imported rather than reimplemented here on purpose: the point of the test is
+/// that the F# port agrees with this, so this side must be lit's.
+[<Import("digestForTemplateResult", "@lit-labs/ssr-client")>]
+let private digestForTemplateResult (t: TemplateResult) : string = jsNative
+
 describe "Differential" <| fun () ->
     it "the .NET renderer agrees with lit on every shared view" <| fun () -> promise {
         let! expected = fetchJson "/test/server-rendered.json"
@@ -69,4 +75,19 @@ describe "Differential" <| fun () ->
             // mismatch in nothing at all.
             if rendered <> served then
                 failwith $"{name}\n  lit:    {rendered}\n  server: {served}"
+    }
+
+    // The port of lit's digest, checked against lit's digest rather than against a
+    // description of it. A wrong digest is not a rendering difference: hydrate() throws
+    // on a mismatch, so this is the test standing between a port and an exception in
+    // somebody's production browser.
+    it "the .NET digest matches lit's own" <| fun () -> promise {
+        let! expected = fetchJson "/test/server-rendered.json"
+
+        for name, template in SharedViews.cases do
+            let fromLit = digestForTemplateResult template
+            let fromServer: string = expected?(name + "#digest")
+
+            if fromLit <> fromServer then
+                failwith $"{name}\n  lit:    {fromLit}\n  server: {fromServer}"
     }
