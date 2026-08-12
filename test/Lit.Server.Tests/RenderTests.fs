@@ -85,3 +85,26 @@ let ``a template composes as a Node`` () =
     let greeting = "hi"
     (toNode (html $"<span>{greeting}</span>")).Invoke(sb)
     Assert.Equal("<span>hi</span>", sb.ToString())
+
+// ---- bug hunt ----
+
+[<Fact>]
+let ``an equals sign in text is not an attribute binding`` () =
+    // The classifier reads the tail of the literal before a hole. Prose can end in
+    // `word = ` just as an attribute can, and only the parse state tells them apart.
+    let n = 5
+    Assert.Equal("<p>total = 5</p>", render (html $"<p>total = {n}</p>"))
+
+[<Fact>]
+let ``an element after a raw text element still counts`` () =
+    // </style> ends raw text. If the scanner re-enters it, everything after the style
+    // block is invisible: nodes go uncounted and bindings look like they are inside it.
+    let cls = "wide"
+    let t = html $"<div><style>x</style><b class={cls}>y</b></div>"
+    // div 0, style 1, b 2
+    Assert.Equal<int[]>([| 2 |], attributeElementIndices t)
+
+[<Fact>]
+let ``a hole in a quoted attribute value renders inside the quotes`` () =
+    let name = "crate"
+    Assert.Equal("""<i title="a crate"></i>""", render (html $"""<i title="a {name}"></i>"""))

@@ -177,6 +177,34 @@ describe "Differential" <| fun () ->
         document.body.removeChild host |> ignore
     }
 
+    // The failure path, which is the one that matters most: it runs when something is
+    // already wrong, and it must not make things worse. lit's render does not clear the
+    // container it is given, so a fallback that simply renders would leave the server's
+    // markup in place and append its own underneath it.
+    it "a refused adoption leaves one copy of the page, not two" <| fun () -> promise {
+        let! expected = fetchJson "/test/server-rendered.json"
+
+        let host = document.createElement "div"
+        document.body.appendChild host |> ignore
+        // Server markup for one template...
+        host.innerHTML <- (expected?("toolbar-plain#hydratable"): string)
+
+        // ...adopted with a different one. The digest will not match, hydrate throws,
+        // and Hydrate.adopt falls back to rendering.
+        Hydrate.adopt host (SharedViews.icon "i-cube")
+        do! Promise.sleep 0
+
+        let buttons = host.querySelectorAll("button").length
+        let svgs = host.querySelectorAll("svg").length
+        document.body.removeChild host |> ignore
+
+        if buttons <> 0 then
+            failwith $"the server's markup survived the fallback: {buttons} button(s) left beside the new render"
+
+        if svgs <> 1 then
+            failwith $"expected exactly one rendered icon, found {svgs}"
+    }
+
     // The port of lit's digest, checked against lit's digest rather than against a
     // description of it. A wrong digest is not a rendering difference: hydrate() throws
     // on a mismatch, so this is the test standing between a port and an exception in

@@ -108,6 +108,9 @@ module Server =
         | ChildHole
         /// In a tag, binding an attribute of the element at this node index.
         | AttrHole of elementIndex: int
+        /// Inside a quoted attribute value that is already open, as in `title="a {x}"`.
+        /// lit supports this; the value goes in as text, with no name to write.
+        | QuotedHole of elementIndex: int
 
     /// What a template looks like to lit's own template walker.
     ///
@@ -159,6 +162,11 @@ module Server =
         let mutable state = 0 // 0 text, 1 in tag, 2 in quoted value, 3 in comment, 4 raw text
         let mutable quote = '"'
         let mutable rawTag = ""
+        // Whether the tag being read is a closing one. Without it, the `>` of `</style>`
+        // looks exactly like the `>` of `<style>` and puts the scanner back into raw
+        // text, so everything after the block goes uncounted and every later binding
+        // appears to be inside it.
+        let mutable closing = false
 
         for segIndex in 0 .. segments.Length - 1 do
             let s = segments.[segIndex]
@@ -174,6 +182,7 @@ module Server =
                     elif i + 1 < s.Length && s.[i] = '<' && s.[i + 1] = '/' then
                         // A closing tag is not a node.
                         state <- 1
+                        closing <- true
                         current <- -1
                         i <- i + 2
                     elif i + 1 < s.Length && s.[i] = '<' && Char.IsLetter s.[i + 1] then
@@ -192,6 +201,7 @@ module Server =
 
                         rawTag <- s.Substring(i + 1, nameEnd - i - 1)
                         state <- 1
+                        closing <- false
                         i <- nameEnd
                     else
                         i <- i + 1
@@ -203,7 +213,12 @@ module Server =
                         state <- 2
                         i <- i + 1
                     | '>' ->
-                        state <- if rawTextTags.Contains rawTag then 4 else 0
+                        state <-
+                            if closing then 0
+                            elif rawTextTags.Contains rawTag then 4
+                            else 0
+
+                        closing <- false
                         i <- i + 1
                     | _ -> i <- i + 1
                 | 2 ->
@@ -219,6 +234,7 @@ module Server =
                     // Raw text: nothing in here starts a node until the element closes.
                     if i + 1 < s.Length && s.[i] = '<' && s.[i + 1] = '/' then
                         state <- 1
+                        closing <- true
                         current <- -1
                         i <- i + 2
                     else
@@ -242,10 +258,15 @@ module Server =
 
                     holes.Add(AttrHole current)
                 | 2 ->
-                    raise (
-                        UnsupportedTemplateValue
-                            "A binding inside a quoted attribute value is not supported yet; write it unquoted, as `class={value}`."
-                    )
+                    if current < 0 then
+                        raise (UnsupportedTemplateValue "A binding inside a closing tag is not supported.")
+
+                    if not currentMarked then
+                        let seg, off = currentAt
+                        markers.Add(seg, off, current)
+                        currentMarked <- true
+
+                    holes.Add(QuotedHole current)
                 | 3 -> raise (UnsupportedTemplateValue "A binding inside an HTML comment is not supported.")
                 | _ ->
                     raise (
@@ -367,13 +388,19 @@ module Server =
     and internal toNodeCore (hydratable: bool) (isRoot: bool) (t: TemplateResult) : Node =
         let parts = ResizeArray<Node>()
 
+        // The scanner runs for every render, not only the hydratable one, because it is
+        // what says whether a hole is in text or in a tag. Deciding that from the tail of
+        // the literal alone cannot work: prose ends in `word = ` exactly as an attribute
+        // does, and `<p>total = {n}</p>` was being served as `<p>total="5"</p>`.
+        let analysis = analyze t.Segments
+
         // Node markers have to be written in front of the element they name, so their
         // positions are worked out before anything is emitted.
         let markersBySegment =
             if not hydratable then
                 dict []
             else
-                (analyze t.Segments).NodeMarkers
+                analysis.NodeMarkers
                 |> List.groupBy (fun (segment, _, _) -> segment)
                 |> List.map (fun (segment, group) ->
                     segment, group |> List.map (fun (_, offset, index) -> offset, index) |> List.sortBy fst)
@@ -409,9 +436,26 @@ module Server =
                 emitSegment segment.Length
             else
                 let value = t.Values.[i]
+
+                // What kind of hole this is comes from the scanner. The regex is only
+                // asked for the attribute's name and sigil afterwards, and only where a
+                // name is expected.
                 let m = binding.Match(segment)
 
-                if not m.Success then
+                // The escaped text a value contributes where a name has already been
+                // written, or where the quote is already open.
+                let attributeText () =
+                    match value with
+                    | null -> ()
+                    | :? EvHandler -> ()
+                    | :? string as str -> parts.Add(Node.Text str)
+                    | :? bool as b -> parts.Add(Node.RawHtml(if b then "true" else "false"))
+                    | :? TemplateResult ->
+                        raise (UnsupportedTemplateValue "A nested template cannot be an attribute value.")
+                    | v -> parts.Add(Node.Text(string v))
+
+                match analysis.Holes.[i] with
+                | ChildHole ->
                     emitSegment segment.Length
 
                     if hydratable then
@@ -421,7 +465,19 @@ module Server =
 
                     if hydratable then
                         parts.Add(Node.RawHtml "<!--/lit-part-->")
-                else
+
+                // The quote is already open, as in `title="a {x}"`, so the value goes in
+                // as it stands and there is no name to write.
+                | QuotedHole _ ->
+                    emitSegment segment.Length
+                    attributeText ()
+
+                // In a tag with no `name=` in front of it: an element binding, as in
+                // `<div {Lit.refValue r}>`. A ref is a handle on a live node, so the
+                // server has nothing to write, exactly as for an event handler.
+                | AttrHole _ when not m.Success -> emitSegment segment.Length
+
+                | AttrHole _ ->
                     let lead = segment.Substring(0, m.Index)
                     let name = m.Groups.["name"].Value
 

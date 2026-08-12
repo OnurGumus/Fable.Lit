@@ -39,4 +39,11 @@ module Hydrate =
             hydrateImpl (box template) (container :> Node) (box {|  |})
         with error ->
             Browser.Dom.console.warn ("lit could not adopt the server markup; rendering instead.", error)
+
+            // Emptied first. lit's `render` inserts its part into a container rather than
+            // replacing what is already there, so rendering over markup it has just
+            // refused leaves both copies on the page: the server's, which nothing is
+            // wired to, and the client's underneath it. The fallback exists to make a
+            // mismatch harmless, and a page shown twice is not harmless.
+            container.innerHTML <- ""
             Lit.render container template
