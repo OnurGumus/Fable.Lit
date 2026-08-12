@@ -12,6 +12,7 @@
     <Compile Include="HookTest.fs" />
     <Compile Include="LitElementTest.fs" />
     <Compile Include="ScopeCssTest.fs" />
+    <Compile Include="ElmishTest.fs" />
     <Compile Include="DifferentialTest.fs" />
   </ItemGroup>
   <ItemGroup>

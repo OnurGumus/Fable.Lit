@@ -104,6 +104,29 @@ type HMR =
     /// Internal use. If you want to interact with HMR API, see https://webpack.js.org/api/hot-module-replacement/
     static member webpackHot: IWebpackHot = !!obj()
 
+    /// Makes this module accept its own hot updates, so a change to it, or to anything
+    /// it imports, re-executes it in place instead of reloading the page.
+    ///
+    /// Call it once at the top of the module that starts the application. What
+    /// re-execution means is left to the code being run again: an Elmish program mounted
+    /// with `Program.withLit` or `Program.withLitHydrated` finds the program the previous
+    /// run left on the element, stops it and carries its model over, so for an Elmish app
+    /// this line is the whole opt-in. HookComponents want `HMR.createToken` and
+    /// `Hook.useHmr` instead, which replace a component's render function without running
+    /// the module again.
+    ///
+    /// Does nothing in a non-debug build, or under a dev server that implements neither
+    /// Vite's nor webpack's hot-update API.
+    static member inline acceptSelf(): unit =
+#if !DEBUG
+        ()
+#else
+        try
+            if HMR.hot.active then HMR.hot.accept()
+            elif HMR.webpackHot.active then HMR.webpackHot.accept()
+        with _ -> ()
+#endif
+
     /// Call this in module/files you want to activate HMR for when using non-bundling dev servers like [Vite](https://vitejs.dev/) or [Snowpack](https://www.snowpack.dev/).
     ///
     /// The HMR token must be assigned to a **static private** value and shared with HookComponents with `Hook.useHmr`.

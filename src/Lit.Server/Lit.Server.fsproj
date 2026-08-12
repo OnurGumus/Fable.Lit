@@ -19,6 +19,6 @@
     <!-- The escaping, the Node model and the composition point all come from here: a
          rendered island is a Node, which is exactly what a page template's hole takes,
          so the two systems meet at a type that already exists rather than at a string. -->
-    <PackageReference Include="HtmlTypeProvider" Version="0.9.0" />
+    <PackageReference Include="HtmlTypeProvider" Version="0.9.1" />
   </ItemGroup>
 </Project>
