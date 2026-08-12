@@ -73,7 +73,9 @@ let init() =
         |> IntervalId
         |> dispatch
 
-    Model.Empty, Cmd.ofSub subscribe
+    // `Cmd.ofSub` under Elmish 3. Renamed in Elmish 4, where `Sub` became the separate
+    // subscription concept and a one-shot side effect like this one is an effect.
+    Model.Empty, Cmd.ofEffect subscribe
 
 let update msg model =
     match msg with

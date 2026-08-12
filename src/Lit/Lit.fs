@@ -379,10 +379,33 @@ module DomHelpers =
         /// Casts the event target to HTMLInputElement and gets the `checked` property.
         member this.Checked: bool = (this :?> HTMLInputElement).``checked``
 
+    /// An event handler on its way into a template.
+    ///
+    /// Erased, so at runtime this *is* the function it was given: `Ev handler` compiles
+    /// to `handler` and lit receives exactly what it received before. The type exists
+    /// for the F# compiler alone.
+    ///
+    /// Why it has to exist: `html $"""<button @click={Ev(fun _ -> ...)}>"""` puts a
+    /// function value in an interpolated string, and F# warns FS3884 -- "it will be
+    /// formatted using its ToString method, which is likely not the intended behavior".
+    /// Here it is exactly the intended behaviour, because the string is never formatted:
+    /// `Template.transform` takes the FormattableString apart and hands the arguments to
+    /// lit's own tagged-template function. But the compiler cannot know that, so every
+    /// event binding anyone writes reports a warning that is always wrong. One
+    /// application had 77 of them across nine files, on the most common line in the
+    /// codebase, in a build where real warnings had to be found among them.
+    ///
+    /// A named type is the fix because the warning keys off the *static* type of the
+    /// hole. Erasure is what keeps it free: no wrapper object, no unwrapping pass over
+    /// the arguments, and no runtime type test -- which also keeps it clear of Fable's
+    /// generic type-test sharp edges.
+    [<Erase>]
+    type EvHandler = EvHandler of obj
+
     /// Wrapper for event handlers to help type checking.
-    let inline Ev (handler: #Event -> unit): #Event -> unit = handler
+    let inline Ev (handler: #Event -> unit): EvHandler = EvHandler(box handler)
 
     /// Wrapper for event handlers to help type checking.
     /// Extracts `event.target.value` and passes it to the handler.
-    let inline EvVal (handler: string -> unit): Event -> unit =
-        fun (ev: Event) -> handler ev.target.Value
+    let inline EvVal (handler: string -> unit): EvHandler =
+        EvHandler(box (fun (ev: Event) -> handler ev.target.Value))
