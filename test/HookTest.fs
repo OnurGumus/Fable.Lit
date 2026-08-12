@@ -30,6 +30,21 @@ let PingCounter () =
 
     html $"""<p id="ping-count">{value}</p>"""
 
+/// The descriptor is the contract: one value naming the event and the shape of its
+/// detail, which both the dispatch below and the listener take their types from.
+let cargoLoaded = customEvent<string * int> "hook-test-cargo"
+
+[<HookComponent>]
+let TypedListener () =
+    let got, setGot = Hook.useState ""
+
+    Hook.useEventListener(document, cargoLoaded, fun (name, count) ->
+        setGot (sprintf "%s:%i" name count))
+
+    // Wrapped, because `render` hands back the first element child: an unwrapped <p>
+    // would *be* the container element, and a selector searches inside it.
+    html $"""<div><p id="typed-detail">{got}</p></div>"""
+
 /// Renders the counter away on demand. Removing the host element from the document
 /// would not do: lit has no MutationObserver, so a directive is disconnected when a
 /// render stops including it, not when somebody detaches its DOM.
@@ -572,4 +587,17 @@ describe "Hook" <| fun () ->
         dispatchPing ()
         do! Promise.sleep 0
         pings |> Expect.equal 2
+    }
+
+    // A tuple through a DOM event, which is the shape the app this fork was cut for
+    // sends its solved plans in. Neither side names a string or casts `detail`: they
+    // both read `cargoLoaded`, so changing the payload breaks the compile rather than
+    // the runtime.
+    it "useEventListener carries a typed detail both ways" <| fun () -> promise {
+        use! container = TypedListener() |> render
+        let el = container.El
+
+        document.dispatchCustom(cargoLoaded, ("crate", 3))
+        do! elementUpdated el
+        el.getSelector("#typed-detail") |> Expect.innerText "crate:3"
     }

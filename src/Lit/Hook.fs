@@ -573,6 +573,22 @@ type Hook() =
             Hook.createDisposable (fun () -> target.removeEventListener (name, listener)))
 
     /// <summary>
+    /// Listens for a custom event described by a <c>CustomEventOf</c>, and hands the
+    /// handler its <c>detail</c> already typed. Subscribes for as long as the component
+    /// is connected, and always runs with the latest render's values.
+    /// </summary>
+    /// <example>
+    ///     let planReady = customEvent&lt;Plan * int&gt; "bfb-plan-ready"
+    ///     Hook.useEventListener(Browser.Dom.document, planReady, fun (plan, index) -> draw plan index)
+    /// </example>
+    static member inline useEventListener(target: EventTarget, ev: CustomEventOf<'T>, handler: 'T -> unit): unit =
+        // The one unchecked cast in the whole arrangement, and it is here rather than
+        // at each call site on purpose: the descriptor is what pairs this name with
+        // this payload type, so both ends of the event derive their shape from one
+        // value instead of agreeing by hand and drifting apart later.
+        Hook.useEventListener(target, ev.Name, fun (e: CustomEvent) -> handler (unbox e.detail))
+
+    /// <summary>
     /// Helper to implement CSS transitions in your component. It will give you the class name
     /// corresponding to current state: `transition-enter`, `transition-leave` (or empty string).
     /// It will also fire events when transitions complete.
