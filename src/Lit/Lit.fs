@@ -168,6 +168,19 @@ type LitBindings =
     [<ImportMember("lit/directives/unsafe-html.js")>]
     static member unsafeHTML(html: string) : TemplateResult = jsNative
 
+/// The whole of the element this defines: two callbacks the browser already provides,
+/// forwarded to whoever is listening. Private, because the thing worth exposing is
+/// `Lit.trackConnection`, not a way to define elements.
+module private ConnectionTracking =
+    [<Emit("customElements.get($0)")>]
+    let definedFor (tag: string) : obj = jsNative
+
+    [<Emit("customElements.define($0, class extends HTMLElement { connectedCallback() { $1(this, true) } disconnectedCallback() { $1(this, false) } })")>]
+    let define (tag: string, onChange: Element -> bool -> unit) : unit = jsNative
+
+    [<Emit("$0['_$litPart$']")>]
+    let rootPartOf (el: Element) : obj = jsNative
+
 [<AutoOpen>]
 module LitHelpers =
     /// <summary>
@@ -237,6 +250,42 @@ type Lit() =
     /// get hold of the part for a container something else rendered into.
     /// </remarks>
     static member renderPart (el: #Node) (t: TemplateResult) : ChildPart = LitBindings.render (t, unbox el)
+
+    /// <summary>
+    /// Makes every element with this tag report leaving and rejoining the document to
+    /// whatever lit rendered into it.
+    /// </summary>
+    /// <remarks>
+    /// lit propagates disconnection through its own rendering: clear a part, and the
+    /// directives in what it removed are told. What it never does is watch the document,
+    /// so markup rendered into an element that something else removes hears nothing.
+    /// LitElement does not solve that either -- it borrows the only mechanism there is,
+    /// its own connected and disconnected callbacks, and calls setConnected from them.
+    ///
+    /// This borrows the same one. The tag becomes a custom element whose only behaviour
+    /// is to forward those callbacks to the root part inside it, so AsyncDirectives pause
+    /// when the host leaves the document and resume when it returns. It pauses rather than
+    /// stops on purpose: an element that was merely moved comes back with everything it
+    /// had. `Program.stop` is the other thing, for an island that is going away for good.
+    ///
+    /// Call it once. Defining a tag upgrades the instances already on the page, so it can
+    /// run before or after the markup arrives. The tag must contain a dash, as custom
+    /// element names must.
+    /// </remarks>
+    /// <example>
+    ///     Lit.trackConnection "my-island"
+    /// </example>
+    static member trackConnection(tag: string) : unit =
+        if isNull (ConnectionTracking.definedFor tag) then
+            ConnectionTracking.define (
+                tag,
+                fun el connected ->
+                    // Nothing rendered into it yet is the ordinary case for the connected
+                    // callback, which fires while the element is still being upgraded.
+                    match ConnectionTracking.rootPartOf el with
+                    | null -> ()
+                    | part -> (unbox<ChildPart> part).setConnected connected
+            )
 
     /// <summary>
     /// Generates a single string that filters out false-y values from a tuple sequence.
