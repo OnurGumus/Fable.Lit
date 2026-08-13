@@ -2,6 +2,7 @@ namespace Lit
 
 open Browser.Types
 open Fable.Core
+open Fable.Core.JsInterop
 
 /// Adopting server-rendered markup instead of replacing it.
 ///
@@ -34,7 +35,10 @@ module Hydrate =
     /// The template and the data must be the ones the server rendered. That is not a
     /// suggestion: a template that differs is the mismatch this catches, and data that
     /// differs is markup that hydrates cleanly and then shows the wrong thing.
-    let adopt (container: Element) (template: TemplateResult) =
+    /// The container is anything lit can render into, which is wider than an element: a
+    /// shadow root is a DocumentFragment, and markup that arrived as
+    /// `<template shadowrootmode="open">` is adopted there rather than on its host.
+    let adopt (container: #Node) (template: TemplateResult) =
         try
             hydrateImpl (box template) (container :> Node) (box {|  |})
         with error ->
@@ -45,5 +49,7 @@ module Hydrate =
             // refused leaves both copies on the page: the server's, which nothing is
             // wired to, and the client's underneath it. The fallback exists to make a
             // mismatch harmless, and a page shown twice is not harmless.
-            container.innerHTML <- ""
+            // Through the dynamic operator because the container may be a shadow root,
+            // which has innerHTML but is not an Element.
+            (box container)?innerHTML <- ""
             Lit.render container template

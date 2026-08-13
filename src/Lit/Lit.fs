@@ -212,7 +212,9 @@ type Lit() =
     /// </summary>
     /// <param name="el">The container to render into.</param>
     /// <param name="t">A <see cref="Lit.TemplateResult">TemplateResult</see> to be rendered.</param>
-    static member render el t: unit = LitBindings.render (t, el)
+    /// The container is anything lit can render into: an element, or a shadow root,
+    /// which is a DocumentFragment rather than an Element.
+    static member render (el: #Node) (t: TemplateResult) : unit = LitBindings.render (t, unbox el)
 
     /// <summary>
     /// Generates a single string that filters out false-y values from a tuple sequence.

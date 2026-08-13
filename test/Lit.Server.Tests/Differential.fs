@@ -13,6 +13,12 @@ open System.Text.Json
 open Xunit
 open Lit
 
+/// A declarative shadow root as a string, the way a page would carry one.
+let private shadowRootHtml (template: TemplateResult) =
+    let sb = Text.StringBuilder()
+    (toShadowRootNode ".n { color: rgb(1, 2, 3); }" template).Invoke(sb)
+    sb.ToString()
+
 [<Fact>]
 let ``render every shared case for the browser to compare`` () =
     // Both the markup and lit's digest of the template. The digest is what a
@@ -29,7 +35,10 @@ let ``render every shared case for the browser to compare`` () =
               // same list from lit and hold the two side by side.
               name + "#nodes", String.Join(",", attributeElementIndices template |> Array.map string)
               // The same markup with lit's hydration markers, for the adoption test.
-              name + "#hydratable", renderHydratable template ])
+              name + "#hydratable", renderHydratable template
+              // And inside a declarative shadow root, with a stylesheet the browser can
+              // only be applying if the root really was attached.
+              name + "#shadow", shadowRootHtml template ])
         |> dict
 
     // Repo root from the test binary: bin/Debug/net10.0 -> test/Lit.Server.Tests -> test

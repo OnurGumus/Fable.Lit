@@ -545,6 +545,34 @@ module Server =
     /// half-built page.
     let toHydratableNode (t: TemplateResult) = toNodeCore true true t
 
+    /// The template as a declarative shadow root, ready to compose into a page.
+    ///
+    /// `<template shadowrootmode="open">` is attached by the HTML parser as it reads the
+    /// page, so the element arrives with its shadow DOM already in place rather than
+    /// waiting for script to build one. Inside it are the same markers as anywhere else:
+    /// lit finds its bindings by walking comment nodes, and a shadow root is a place
+    /// where comments live like any other.
+    ///
+    /// The styles are written into the root ahead of the content, which is the whole
+    /// point of doing this at all -- they apply to this tree and nothing else, and they
+    /// arrive with it rather than after it. They sit outside the markers, so the client
+    /// neither adopts nor re-renders them.
+    ///
+    /// On the client, hydrate the shadow root rather than its host: that is the container
+    /// the markers were written into. `Program.withLitHydratedInShadowRoot` finds it.
+    let toShadowRootNode (styles: string) (t: TemplateResult) =
+        Node.Fragment
+            [ Node.RawHtml "<template shadowrootmode=\"open\">"
+              (if String.IsNullOrWhiteSpace styles then
+                   Node.Empty()
+               else
+                   // Raw on purpose, and the one place in this file that is. A stylesheet
+                   // is not text content and escaping it would break it; what goes in
+                   // here is yours, not a visitor's.
+                   Node.Fragment [ Node.RawHtml "<style>"; Node.RawHtml styles; Node.RawHtml "</style>" ])
+              toHydratableNode t
+              Node.RawHtml "</template>" ]
+
     /// The template as an HTML string.
     let render (t: TemplateResult) =
         let sb = StringBuilder()

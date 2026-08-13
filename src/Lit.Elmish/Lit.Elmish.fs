@@ -5,6 +5,7 @@ open Browser
 open Browser.Types
 open Elmish
 open Lit
+open Fable.Core.JsInterop
 open Lit.HMRTypes
 
 /// What a mounted program leaves behind on the element it renders into.
@@ -33,7 +34,9 @@ module private Mount =
     [<Literal>]
     let private KEY = "__fableLitElmish"
 
-    let stateOf (el: Element) : State = getOrAdd (box el) KEY State
+    /// Keyed on the container, which is not always an element: markup that arrived as
+    /// a declarative shadow root is adopted on the root itself.
+    let stateOf (container: obj) : State = getOrAdd container KEY State
 
 [<RequireQualifiedAccess>]
 module Program =
@@ -51,8 +54,8 @@ module Program =
     /// that re-imports its own bundle after a rebuild is another, and says nothing at
     /// all. All three arrive here as a second call on an element that already has a
     /// program, which is the only fact this needs.
-    let private mountOn (adopt: bool) (el: Element) (program: Program<'arg, 'model, 'msg, Lit.TemplateResult>): Program<'arg, 'model, 'msg, Lit.TemplateResult> =
-        let state = Mount.stateOf el
+    let private mountOn (adopt: bool) (el: #Node) (program: Program<'arg, 'model, 'msg, Lit.TemplateResult>): Program<'arg, 'model, 'msg, Lit.TemplateResult> =
+        let state = Mount.stateOf (box el)
 
         // A message no user code can produce, recognised by reference. It is created per
         // mount so that the closure sending it and the predicate recognising it always
@@ -167,6 +170,33 @@ module Program =
             failwith $"Cannot find element with id {id}"
 
         withLitOnElement el program
+
+    /// <summary>
+    /// Mounts an Elmish loop in the shadow root of the element with the specified id,
+    /// adopting the server-rendered markup that arrived inside it.
+    /// </summary>
+    /// <remarks>
+    /// For markup written by Lit.Server's <c>toShadowRootNode</c>, which emits a
+    /// <c>&lt;template shadowrootmode="open"&gt;</c> the HTML parser attaches as it reads
+    /// the page. The shadow root, not its host, is the container the markers were written
+    /// into, and hydrating the host would leave lit looking for a root part it cannot see.
+    ///
+    /// Styles written into the root sit outside those markers, so they are neither
+    /// adopted nor re-rendered: they stay exactly as the server wrote them.
+    /// </remarks>
+    let withLitHydratedInShadowRoot (id: string) (program: Program<'arg, 'model, 'msg, Lit.TemplateResult>): Program<'arg, 'model, 'msg, Lit.TemplateResult> =
+        let host = document.getElementById (id)
+
+        if isNull host then
+            failwith $"Cannot find element with id {id}"
+
+        let root: ShadowRoot = host?shadowRoot
+
+        if isNull (box root) then
+            failwith
+                $"The element with id {id} has no shadow root. A declarative one arrives with the page as <template shadowrootmode=\"open\">, which is what Lit.Server's toShadowRootNode writes; note that assigning innerHTML in the browser does not attach one."
+
+        mountOn true root program
 
 [<AutoOpen>]
 module LitElmishExtensions =
