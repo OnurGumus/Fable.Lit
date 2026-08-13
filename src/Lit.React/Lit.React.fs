@@ -7,6 +7,21 @@ open Fable.React
 open Browser.Types
 open Lit
 
+/// A React root, and the function that makes one.
+///
+/// Declared here rather than taken from a newer Fable.React, because the version this
+/// package pins is the one the sample and its Feliz build against, and moving it breaks
+/// them for a binding this size. It is the whole of the `react-dom/client` surface this
+/// file needs.
+type IReactRoot =
+    abstract render: element: ReactElement -> unit
+    abstract unmount: unit -> unit
+
+[<AutoOpen>]
+module private ReactDomClientBindings =
+    [<Import("createRoot", "react-dom/client")>]
+    let createRoot (container: Element) : IReactRoot = jsNative
+
 /// <summary>
 /// Directive that allows a react component to be rendered inside a Lit template.
 /// </summary>
@@ -16,9 +31,7 @@ type ReactDirective() =
 
     let mutable _domEl = Unchecked.defaultof<Element>
 
-    // The root React renders through. Kept because a root is created once per container
-    // and rendered into many times: creating one per render mounts the component again
-    // on every update, losing its state and any DOM it owns.
+    // The root React renders through, and the element it was created for.
     let mutable _root = Unchecked.defaultof<IReactRoot>
 
     member _.className = ""
@@ -38,7 +51,7 @@ type ReactDirective() =
                     if not (isNull (box _root)) then
                         _root.unmount()
 
-                    _root <- ReactDomClient.createRoot el
+                    _root <- createRoot el
 
                 _domEl <- el
                 _root.render(this.renderFn props)

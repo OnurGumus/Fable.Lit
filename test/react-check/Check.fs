@@ -42,8 +42,7 @@ window.setTimeout(
                        secondText = (if isNull second then "" else second.textContent)
                        sameBadge = obj.ReferenceEquals(first, second)
                        oldBadgeStillInTheDom = (not (isNull first)) && (first?isConnected: bool)
-                       sameReactContainer = obj.ReferenceEquals(firstContainer, host.querySelector ".wrap > div")
-                       roots = window?__rootCount |}),
+                       sameReactContainer = obj.ReferenceEquals(firstContainer, host.querySelector ".wrap > div") |}),
             200)
         |> ignore),
     200)
