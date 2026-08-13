@@ -4,6 +4,7 @@
         "install": "dotnet tool restore",
         "publish": "dotnet fsi build.fsx publish",
         "test": "dotnet fable test -o build/test -c Debug --run web-test-runner \"build/test/*Test.js\"",
+        "check:react": "dotnet fable test/react-check -o test/react-check/build && cd test/react-check && vite",
         "test:watch": "dotnet fable watch test -o build/test --run web-test-runner \"build/test/*Test.js\" --watch",
         "start": "dotnet fable watch sample -o build/sample --run vite",
         "predocs": "shx rm -rf deploy",
@@ -13,8 +14,8 @@
     },
     "dependencies": {
         "lit": "^3.3.3",
-        "react": "^17.0.2",
-        "react-dom": "^17.0.2"
+        "react": "^19",
+        "react-dom": "^19"
     },
     "devDependencies": {
         "@lit-labs/ssr-client": "^1.1.8",
