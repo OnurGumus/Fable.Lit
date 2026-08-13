@@ -15,6 +15,7 @@
     <Compile Include="ElmishTest.fs" />
     <Compile Include="ShadowTest.fs" />
     <Compile Include="FormElementTest.fs" />
+    <Compile Include="DisconnectTest.fs" />
     <Compile Include="DifferentialTest.fs" />
   </ItemGroup>
   <ItemGroup>

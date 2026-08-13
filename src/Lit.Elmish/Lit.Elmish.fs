@@ -26,6 +26,10 @@ module private Mount =
         /// its dispatch loop stops accepting messages.
         member val Stop: (unit -> unit) option = None with get, set
 
+        /// lit's root part for this container, once there is one, so the tree can be told
+        /// it is disconnected when the program driving it stops.
+        member val Part: Types.ChildPart option = None with get, set
+
         /// The last model rendered here. Development only, see `mountOn`.
         member val Model: obj = null with get, set
 
@@ -98,10 +102,19 @@ module Program =
             let view = Program.view program model dispatch
 
             if state.Rendered then
-                Lit.render el view
+                state.Part <- Some(Lit.renderPart el view)
             else
                 state.Rendered <- true
-                if adopt then Hydrate.adopt el view else Lit.render el view
+
+                if adopt then
+                    Hydrate.adopt el view
+
+                    // Adoption goes through lit's hydrate, which stores the root part on
+                    // the container rather than returning it. Same field lit's own render
+                    // reads, and one it keeps unminified for exactly this reason.
+                    state.Part <- Some(unbox<Types.ChildPart> ((box el)?("_$litPart$")))
+                else
+                    state.Part <- Some(Lit.renderPart el view)
 
         program
         |> Program.map
@@ -170,6 +183,37 @@ module Program =
             failwith $"Cannot find element with id {id}"
 
         withLitOnElement el program
+
+    /// <summary>
+    /// Stops the program mounted on this container, if there is one.
+    /// </summary>
+    /// <remarks>
+    /// Its subscriptions are stopped and its dispatch loop closed, through Elmish's own
+    /// termination, and the tree it rendered is told it is disconnected so that any
+    /// AsyncDirective in it lets go of what it was holding.
+    ///
+    /// For islands, which are the case with no lifecycle of their own: a component knows
+    /// when it leaves the page, an Elmish program rendered into a plain element does not,
+    /// and goes on running until something says otherwise. This is that something.
+    ///
+    /// Mounting another program on the same container does this too, so it is only needed
+    /// when nothing is taking over.
+    /// </remarks>
+    let stopOn (el: #Node) =
+        let state = Mount.stateOf (box el)
+
+        state.Stop |> Option.iter (fun stop -> stop ())
+        state.Stop <- None
+        state.Part |> Option.iter (fun part -> part.setConnected false)
+
+    /// <summary>
+    /// Stops the program mounted on the element with the specified id, if there is one.
+    /// </summary>
+    let stop (id: string) =
+        let el = document.getElementById (id)
+
+        if not (isNull el) then
+            stopOn el
 
     /// <summary>
     /// Mounts an Elmish loop in the shadow root of the element with the specified id,

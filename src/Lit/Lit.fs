@@ -23,6 +23,10 @@ module Types =
     type ChildPart =
         inherit Part
         abstract parentNode : Element
+        /// Tells everything rendered through this part whether it is still connected.
+        /// AsyncDirectives inside it are notified, which is how they let go of timers,
+        /// sockets and observers when the tree they live in leaves the page.
+        abstract setConnected: connected: bool -> unit
 
     type ElementPart =
         inherit Part
@@ -66,8 +70,10 @@ type LitBindings =
     /// </summary>
     /// <param name="el">The container to render into.</param>
     /// <param name="t">A <see cref="Lit.TemplateResult">TemplateResult</see> to be rendered.</param>
+    /// Returns lit's root part for the container. `Lit.render` ignores it; `Lit.renderPart`
+    /// hands it back.
     [<ImportMember("lit")>]
-    static member render(t: TemplateResult, el: Element) : unit = jsNative
+    static member render(t: TemplateResult, el: Element) : ChildPart = jsNative
 
     /// <summary>
     /// A sentinel value that signals a ChildPart to fully clear its content.
@@ -214,7 +220,23 @@ type Lit() =
     /// <param name="t">A <see cref="Lit.TemplateResult">TemplateResult</see> to be rendered.</param>
     /// The container is anything lit can render into: an element, or a shadow root,
     /// which is a DocumentFragment rather than an Element.
-    static member render (el: #Node) (t: TemplateResult) : unit = LitBindings.render (t, unbox el)
+    static member render (el: #Node) (t: TemplateResult) : unit = LitBindings.render (t, unbox el) |> ignore
+
+    /// <summary>
+    /// Renders into the container and hands back lit's root part for it.
+    /// </summary>
+    /// <remarks>
+    /// The part is how a rendered tree is told it has been disconnected:
+    /// <c>part.setConnected false</c> reaches every AsyncDirective inside it. Without it,
+    /// markup rendered into a plain element has no lifecycle at all -- take the element
+    /// out of the page and whatever it started keeps running, because nothing was ever
+    /// told. Elements that are components have this already, through
+    /// <c>Hook.useEffectOnce</c> and a LitElement's own disconnectedCallback.
+    ///
+    /// Calling it again on the same container returns the same part, so it is also how to
+    /// get hold of the part for a container something else rendered into.
+    /// </remarks>
+    static member renderPart (el: #Node) (t: TemplateResult) : ChildPart = LitBindings.render (t, unbox el)
 
     /// <summary>
     /// Generates a single string that filters out false-y values from a tuple sequence.
