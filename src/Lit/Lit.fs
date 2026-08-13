@@ -275,7 +275,26 @@ type Lit() =
     /// <example>
     ///     Lit.trackConnection "my-island"
     /// </example>
-    static member trackConnection(tag: string) : unit =
+    static member trackConnection(tag: string) : unit = Lit.trackConnection (tag, (fun _ _ -> ()))
+
+    /// <summary>
+    /// The same, and tells you as well: the handler is given the element and whether it
+    /// has just joined the document.
+    /// </summary>
+    /// <remarks>
+    /// The forwarding still happens; this is in addition to it, not instead. Useful for
+    /// the things a pause cannot express by itself -- logging, telemetry, releasing
+    /// something the page owns rather than the template.
+    ///
+    /// The connected call arrives while the element is being upgraded, which is before
+    /// anything has been rendered into it. Handlers that expect content have to allow for
+    /// that first one.
+    /// </remarks>
+    /// <example>
+    ///     Lit.trackConnection("my-island", fun _ connected ->
+    ///         console.log (if connected then "connected" else "disconnected"))
+    /// </example>
+    static member trackConnection(tag: string, onChange: Element -> bool -> unit) : unit =
         if isNull (ConnectionTracking.definedFor tag) then
             ConnectionTracking.define (
                 tag,
@@ -285,6 +304,8 @@ type Lit() =
                     match ConnectionTracking.rootPartOf el with
                     | null -> ()
                     | part -> (unbox<ChildPart> part).setConnected connected
+
+                    onChange el connected
             )
 
     /// <summary>

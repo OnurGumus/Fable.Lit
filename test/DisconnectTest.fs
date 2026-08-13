@@ -200,7 +200,8 @@ describe "Disconnecting" <| fun () ->
     // and leaving the document -- so an island wrapped in one gets what a LitElement has,
     // without being a LitElement.
     it "tracks connection through a host element, both ways" <| fun () -> promise {
-        Lit.trackConnection "island-host"
+        let seen = ResizeArray<bool>()
+        Lit.trackConnection ("island-host", (fun _ connected -> seen.Add connected))
 
         let holder = host ()
         holder.innerHTML <- """<island-host id="tracked"></island-host>"""
@@ -230,6 +231,10 @@ describe "Disconnecting" <| fun () ->
 
         if not attached then
             failwith "the host came back and what it rendered stayed disconnected"
+
+        // The handler heard the same story: upgraded, removed, put back.
+        if List.ofSeq seen <> [ true; false; true ] then
+            failwith $"""the handler was told {List.ofSeq seen}, not [true; false; true]"""
 
         document.body.removeChild holder |> ignore
     }
