@@ -181,6 +181,47 @@ module private ConnectionTracking =
     [<Emit("$0['_$litPart$']")>]
     let rootPartOf (el: Element) : obj = jsNative
 
+    /// Handlers by tag, so that subscribing twice does not define the element twice --
+    /// which the browser refuses anyway -- and so that one handler going away leaves the
+    /// others, and the forwarding, alone.
+    let private handlers = Collections.Generic.Dictionary<string, Collections.Generic.Dictionary<int, Element -> bool -> unit>>()
+    let mutable private nextId = 0
+
+    let private forTag (tag: string) =
+        match handlers.TryGetValue tag with
+        | true, existing -> existing
+        | _ ->
+            let created = Collections.Generic.Dictionary<int, Element -> bool -> unit>()
+            handlers.[tag] <- created
+            created
+
+    let ensureDefined (tag: string) =
+        if isNull (definedFor tag) then
+            let subscribers = forTag tag
+
+            define (
+                tag,
+                fun el connected ->
+                    // Nothing rendered into it yet is the ordinary case for the connected
+                    // callback, which fires while the element is still being upgraded.
+                    match rootPartOf el with
+                    | null -> ()
+                    | part -> (unbox<ChildPart> part).setConnected connected
+
+                    for handler in Seq.toArray subscribers.Values do
+                        handler el connected
+            )
+
+    let subscribe (tag: string) (handler: Element -> bool -> unit) =
+        ensureDefined tag
+        let subscribers = forTag tag
+        let id = nextId
+        nextId <- nextId + 1
+        subscribers.[id] <- handler
+
+        { new IDisposable with
+            member _.Dispose() = subscribers.Remove id |> ignore }
+
 [<AutoOpen>]
 module LitHelpers =
     /// <summary>
@@ -275,7 +316,7 @@ type Lit() =
     /// <example>
     ///     Lit.trackConnection "my-island"
     /// </example>
-    static member trackConnection(tag: string) : unit = Lit.trackConnection (tag, (fun _ _ -> ()))
+    static member trackConnection(tag: string) : unit = ConnectionTracking.ensureDefined tag
 
     /// <summary>
     /// The same, and tells you as well: the handler is given the element and whether it
@@ -294,19 +335,14 @@ type Lit() =
     ///     Lit.trackConnection("my-island", fun _ connected ->
     ///         console.log (if connected then "connected" else "disconnected"))
     /// </example>
-    static member trackConnection(tag: string, onChange: Element -> bool -> unit) : unit =
-        if isNull (ConnectionTracking.definedFor tag) then
-            ConnectionTracking.define (
-                tag,
-                fun el connected ->
-                    // Nothing rendered into it yet is the ordinary case for the connected
-                    // callback, which fires while the element is still being upgraded.
-                    match ConnectionTracking.rootPartOf el with
-                    | null -> ()
-                    | part -> (unbox<ChildPart> part).setConnected connected
-
-                    onChange el connected
-            )
+    /// <returns>
+    /// A disposable that stops calling this handler. It does not undefine the element,
+    /// which the platform does not allow and which nothing else needs: the forwarding to
+    /// the rendered tree carries on, and so do any other handlers. Shaped this way to sit
+    /// in a hook, where <c>Hook.useEffectOnce</c> wants something to dispose.
+    /// </returns>
+    static member trackConnection(tag: string, onChange: Element -> bool -> unit) : IDisposable =
+        ConnectionTracking.subscribe tag onChange
 
     /// <summary>
     /// Generates a single string that filters out false-y values from a tuple sequence.

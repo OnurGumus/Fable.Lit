@@ -201,7 +201,7 @@ describe "Disconnecting" <| fun () ->
     // without being a LitElement.
     it "tracks connection through a host element, both ways" <| fun () -> promise {
         let seen = ResizeArray<bool>()
-        Lit.trackConnection ("island-host", (fun _ connected -> seen.Add connected))
+        let subscription = Lit.trackConnection ("island-host", (fun _ connected -> seen.Add connected))
 
         let holder = host ()
         holder.innerHTML <- """<island-host id="tracked"></island-host>"""
@@ -235,6 +235,19 @@ describe "Disconnecting" <| fun () ->
         // The handler heard the same story: upgraded, removed, put back.
         if List.ofSeq seen <> [ true; false; true ] then
             failwith $"""the handler was told {List.ofSeq seen}, not [true; false; true]"""
+
+        // Disposing stops the handler and nothing else: the element cannot be undefined,
+        // and the tree it holds still pauses and resumes.
+        subscription.Dispose()
+        attached <- true
+        holder.removeChild tracked |> ignore
+        do! Promise.sleep 50
+
+        if List.ofSeq seen <> [ true; false; true ] then
+            failwith $"""a disposed handler was still called ({List.ofSeq seen})"""
+
+        if attached then
+            failwith "disposing the handler stopped the forwarding as well"
 
         document.body.removeChild holder |> ignore
     }
