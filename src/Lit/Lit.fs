@@ -181,17 +181,47 @@ module private ConnectionTracking =
     [<Emit("$0['_$litPart$']")>]
     let rootPartOf (el: Element) : obj = jsNative
 
-    /// Handlers by tag, so that subscribing twice does not define the element twice --
-    /// which the browser refuses anyway -- and so that one handler going away leaves the
+    /// One subscription: what to run when an element with the tag joins the document,
+    /// and what that run left behind for when it leaves again. Kept per element, because
+    /// a tag can have many and each has its own.
+    type Subscription(onConnected: Element -> IDisposable) =
+        let live = Collections.Generic.List<Element * IDisposable>()
+
+        let indexOf (el: Element) =
+            live.FindIndex(fun (candidate, _) -> obj.ReferenceEquals(candidate, el))
+
+        member _.Changed(el: Element, connected: bool) =
+            let existing = indexOf el
+
+            if connected then
+                // Guarded, because an element moved within the document reports its
+                // arrival before its departure in some orders, and setting up twice would
+                // leave the first one with nobody to dispose it.
+                if existing < 0 then
+                    live.Add(el, onConnected el)
+            elif existing >= 0 then
+                let _, disposable = live.[existing]
+                live.RemoveAt existing
+                disposable.Dispose()
+
+        /// Stop listening, and dispose whatever is still set up.
+        member _.Stop() =
+            for _, disposable in Seq.toArray live do
+                disposable.Dispose()
+
+            live.Clear()
+
+    /// Subscriptions by tag, so that subscribing twice does not define the element twice
+    /// -- which the browser refuses anyway -- and so that one going away leaves the
     /// others, and the forwarding, alone.
-    let private handlers = Collections.Generic.Dictionary<string, Collections.Generic.Dictionary<int, Element -> bool -> unit>>()
+    let private handlers = Collections.Generic.Dictionary<string, Collections.Generic.Dictionary<int, Subscription>>()
     let mutable private nextId = 0
 
     let private forTag (tag: string) =
         match handlers.TryGetValue tag with
         | true, existing -> existing
         | _ ->
-            let created = Collections.Generic.Dictionary<int, Element -> bool -> unit>()
+            let created = Collections.Generic.Dictionary<int, Subscription>()
             handlers.[tag] <- created
             created
 
@@ -208,19 +238,22 @@ module private ConnectionTracking =
                     | null -> ()
                     | part -> (unbox<ChildPart> part).setConnected connected
 
-                    for handler in Seq.toArray subscribers.Values do
-                        handler el connected
+                    for subscription in Seq.toArray subscribers.Values do
+                        subscription.Changed(el, connected)
             )
 
-    let subscribe (tag: string) (handler: Element -> bool -> unit) =
+    let subscribe (tag: string) (onConnected: Element -> IDisposable) =
         ensureDefined tag
         let subscribers = forTag tag
+        let subscription = Subscription(onConnected)
         let id = nextId
         nextId <- nextId + 1
-        subscribers.[id] <- handler
+        subscribers.[id] <- subscription
 
         { new IDisposable with
-            member _.Dispose() = subscribers.Remove id |> ignore }
+            member _.Dispose() =
+                subscribers.Remove id |> ignore
+                subscription.Stop() }
 
 [<AutoOpen>]
 module LitHelpers =
@@ -319,30 +352,32 @@ type Lit() =
     static member trackConnection(tag: string) : unit = ConnectionTracking.ensureDefined tag
 
     /// <summary>
-    /// The same, and tells you as well: the handler is given the element and whether it
-    /// has just joined the document.
+    /// The same, and runs something of yours while the element is in the document.
     /// </summary>
     /// <remarks>
-    /// The forwarding still happens; this is in addition to it, not instead. Useful for
-    /// the things a pause cannot express by itself -- logging, telemetry, releasing
-    /// something the page owns rather than the template.
+    /// The handler is called when an element with this tag joins the document, and what
+    /// it returns is disposed when that element leaves it again -- so a timer, a socket
+    /// or a listener is set up and torn down in one place, and neither half can be
+    /// written without the other. Rejoining calls it again, because it left.
     ///
-    /// The connected call arrives while the element is being upgraded, which is before
-    /// anything has been rendered into it. Handlers that expect content have to allow for
-    /// that first one.
+    /// The forwarding to the rendered tree still happens; this is in addition to it.
+    ///
+    /// The first call arrives while the element is being upgraded, before anything has
+    /// been rendered into it, so a handler that expects content has to allow for that.
     /// </remarks>
     /// <example>
-    ///     Lit.trackConnection("my-island", fun _ connected ->
-    ///         console.log (if connected then "connected" else "disconnected"))
+    ///     Lit.trackConnection("my-island", fun el ->
+    ///         let id = JS.setInterval (fun () -> tick el) 1000
+    ///         Hook.createDisposable (fun () -> JS.clearInterval id))
     /// </example>
     /// <returns>
-    /// A disposable that stops calling this handler. It does not undefine the element,
-    /// which the platform does not allow and which nothing else needs: the forwarding to
-    /// the rendered tree carries on, and so do any other handlers. Shaped this way to sit
-    /// in a hook, where <c>Hook.useEffectOnce</c> wants something to dispose.
+    /// A disposable that stops listening and disposes whatever is still set up. It does
+    /// not undefine the element, which the platform does not allow and which nothing else
+    /// needs: the forwarding carries on, and so do any other subscriptions. Shaped this
+    /// way to sit in a hook, where <c>Hook.useEffectOnce</c> wants something to dispose.
     /// </returns>
-    static member trackConnection(tag: string, onChange: Element -> bool -> unit) : IDisposable =
-        ConnectionTracking.subscribe tag onChange
+    static member trackConnection(tag: string, onConnected: Element -> IDisposable) : IDisposable =
+        ConnectionTracking.subscribe tag onConnected
 
     /// <summary>
     /// Generates a single string that filters out false-y values from a tuple sequence.

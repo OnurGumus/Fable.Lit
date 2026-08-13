@@ -200,8 +200,19 @@ describe "Disconnecting" <| fun () ->
     // and leaving the document -- so an island wrapped in one gets what a LitElement has,
     // without being a LitElement.
     it "tracks connection through a host element, both ways" <| fun () -> promise {
-        let seen = ResizeArray<bool>()
-        let subscription = Lit.trackConnection ("island-host", (fun _ connected -> seen.Add connected))
+        // Set up on arrival, torn down on departure, and the pairing is the assertion:
+        // nothing here can record a teardown that was never set up.
+        let seen = ResizeArray<string>()
+
+        let subscription =
+            Lit.trackConnection (
+                "island-host",
+                fun _ ->
+                    seen.Add "up"
+
+                    { new IDisposable with
+                        member _.Dispose() = seen.Add "down" }
+            )
 
         let holder = host ()
         holder.innerHTML <- """<island-host id="tracked"></island-host>"""
@@ -232,19 +243,22 @@ describe "Disconnecting" <| fun () ->
         if not attached then
             failwith "the host came back and what it rendered stayed disconnected"
 
-        // The handler heard the same story: upgraded, removed, put back.
-        if List.ofSeq seen <> [ true; false; true ] then
-            failwith $"""the handler was told {List.ofSeq seen}, not [true; false; true]"""
+        if List.ofSeq seen <> [ "up"; "down"; "up" ] then
+            failwith $"""the handler ran {List.ofSeq seen}, not [up; down; up]"""
 
-        // Disposing stops the handler and nothing else: the element cannot be undefined,
-        // and the tree it holds still pauses and resumes.
+        // Disposing stops the listening and tears down what is still up. The element
+        // cannot be undefined, and the tree it holds still pauses and resumes.
         subscription.Dispose()
+
+        if List.ofSeq seen <> [ "up"; "down"; "up"; "down" ] then
+            failwith $"""disposing did not tear down what was still set up ({List.ofSeq seen})"""
+
         attached <- true
         holder.removeChild tracked |> ignore
         do! Promise.sleep 50
 
-        if List.ofSeq seen <> [ true; false; true ] then
-            failwith $"""a disposed handler was still called ({List.ofSeq seen})"""
+        if List.ofSeq seen <> [ "up"; "down"; "up"; "down" ] then
+            failwith $"""a disposed subscription still ran ({List.ofSeq seen})"""
 
         if attached then
             failwith "disposing the handler stopped the forwarding as well"
