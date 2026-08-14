@@ -349,6 +349,30 @@ describe "Hook" <| fun () ->
         aRef.Value |> Expect.equal 19
     }
 
+    // Disconnecting is not always the end of an element. Moving one -- reordering a list,
+    // re-parenting a node, a drag -- is a disconnect and a connect on the same instance,
+    // and `disconnectedCallback` has disposed everything `useEffectOnce` set up by the
+    // time the second one arrives.
+    it "useEffectOnce is set up again when a LitElement is reconnected" <| fun () -> promise {
+        let aRef = ref 8
+        use! container = render_html $"<test-disposable .r={aRef} />"
+        let el = container.El
+        let parent = el.parentElement
+
+        do! Promise.sleep 100
+        aRef.Value |> Expect.equal 9
+
+        // Out of the document: the effect is disposed, as it already was.
+        parent.removeChild el |> ignore
+        do! Promise.sleep 100
+        aRef.Value |> Expect.equal 19
+
+        // Back in, as the same element. Without a connectedCallback this stays at 19.
+        parent.appendChild el |> ignore
+        do! Promise.sleep 100
+        aRef.Value |> Expect.equal 20
+    }
+
     it "useEffectOnce runs on mount/dismount as LitElement" <| fun () -> promise {
         let aRef = ref 8
         use! el = render_html $"<test-disposable-container .r={aRef} />"
