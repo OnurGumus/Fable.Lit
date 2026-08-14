@@ -10,6 +10,7 @@
     <Project Path="src/Lit.Feliz/Lit.Feliz.fsproj" />
     <Project Path="src/Lit.React/Lit.React.fsproj" />
     <Project Path="src/Lit.Server/Lit.Server.fsproj" />
+  <Project Path="src/Lit.Store/Lit.Store.fsproj" />
     <Project Path="src/Lit.Test/Lit.Test.fsproj" />
     <Project Path="src/Lit/Lit.fsproj" />
   </Folder>

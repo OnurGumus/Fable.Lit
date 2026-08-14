@@ -16,11 +16,13 @@
     <Compile Include="ShadowTest.fs" />
     <Compile Include="FormElementTest.fs" />
     <Compile Include="DisconnectTest.fs" />
+    <Compile Include="StoreTest.fs" />
     <Compile Include="DifferentialTest.fs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\src\Lit.Elmish\Lit.Elmish.fsproj" />
     <ProjectReference Include="..\src\Lit.Test\Lit.Test.fsproj" />
+    <ProjectReference Include="..\src\Lit.Store\Lit.Store.fsproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Fable.Elmish" Version="5.0.2" />
