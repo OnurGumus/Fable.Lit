@@ -34,6 +34,10 @@
         <RepositoryType>git</RepositoryType>
 
         <PackageLicenseFile>LICENSE</PackageLicenseFile>
+        <!-- Per project, not shared. A package page shows this and nothing else, so a
+             single file repeated eight times would answer "what is this one for?" with
+             the name of the set. Each project has its own beside its fsproj. -->
+        <PackageReadmeFile>README.md</PackageReadmeFile>
         <PackageIcon>fable_logo.png</PackageIcon>
         <PackageTags>fsharp;fable;lit;lit-html;web-components;javascript;f#;js</PackageTags>
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
@@ -47,6 +51,7 @@
     <ItemGroup>
         <None Include="$(MSBuildThisFileDirectory)\..\fable_logo.png" Pack="true" Visible="false" PackagePath="" />
         <None Include="$(MSBuildThisFileDirectory)\..\LICENSE" Pack="true" Visible="false" PackagePath=""/>
+        <None Include="$(MSBuildProjectDirectory)\README.md" Pack="true" Visible="false" PackagePath=""/>
     </ItemGroup>
     <ItemGroup>
         <PackageReference Include="Microsoft.SourceLink.GitHub" Version="1.0.0" PrivateAssets="All" />
