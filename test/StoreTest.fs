@@ -190,3 +190,104 @@ describe "A component with its own Elmish loop" <| fun () ->
 
         document.body.removeChild host |> ignore
     }
+
+// Both at once: a component with its own loop that also reads shared state.
+//
+// The two hooks are independent and neither knows about the other. The store value is
+// read on every render and never enters the local model, which is the point -- a copy in
+// the model is a second answer to a question that already has one.
+module private Mixed =
+    type Msg = Bump
+
+    let init () = 0, Cmd.none
+    let update Bump n = n + 1, Cmd.none
+
+    /// What an update cannot do is read the store, because it is `Msg -> Model -> ...`
+    /// and the store is not in it. Partial application looks like the fix and is a trap:
+    /// `useElmish` calls `program()` once, in the state initialiser, so an update built
+    /// from a render's store value is built from the *first* render's value and keeps it
+    /// forever. This one records what it was given so a test can say so.
+    let mutable updateSawTheme = ""
+    let updateWith (theme: string) Bump n =
+        updateSawTheme <- theme
+        n + 1, Cmd.none
+
+[<LitElement("mixed-reader")>]
+let MixedReader () =
+    LitElement.init (fun config -> config.useShadowDom <- false) |> ignore
+    let shared = Hook.useStore counter
+    let own, dispatch = Hook.useElmish (Mixed.init, Mixed.update)
+
+    html
+        $"""<b class="shared">{shared}</b><b class="own">{own}</b>
+            <button @click={Ev(fun _ -> dispatch Mixed.Bump)}>bump</button>"""
+
+[<LitElement("mixed-stale")>]
+let MixedStale () =
+    LitElement.init (fun config -> config.useShadowDom <- false) |> ignore
+    let shared = Hook.useStore counter
+    // Deliberately the wrong way round, to pin the trap down.
+    let own, dispatch = Hook.useElmish (Mixed.init, Mixed.updateWith (string shared))
+
+    html $"""<b class="own">{own}</b><button @click={Ev(fun _ -> dispatch Mixed.Bump)}>bump</button>"""
+
+describe "A component with both" <| fun () ->
+
+    it "renders shared state and its own, and each moves without the other" <| fun () -> promise {
+        let host = document.createElement "div"
+        document.body.appendChild host |> ignore
+        let keepAlive = counter |> Store.subscribeImmediate ignore |> snd
+
+        counter.Update(fun _ -> 3)
+        host.innerHTML <- "<mixed-reader></mixed-reader>"
+        do! Promise.sleep 100
+
+        let shared () = (host.querySelector ".shared").textContent
+        let own () = (host.querySelector ".own").textContent
+
+        if (shared (), own ()) <> ("3", "0") then
+            failwith $"started at {(shared (), own ())} rather than (3, 0)"
+
+        // The store moves: the shared half follows, the local model does not.
+        counter.Update(fun _ -> 4)
+        do! Promise.sleep 100
+
+        if (shared (), own ()) <> ("4", "0") then
+            failwith $"a store change left the component at {(shared (), own ())}"
+
+        // The local loop moves: the other way round.
+        (host.querySelector "button" :?> Browser.Types.HTMLElement).click ()
+        do! Promise.sleep 100
+
+        if (shared (), own ()) <> ("4", "1") then
+            failwith $"a local dispatch left the component at {(shared (), own ())}"
+
+        keepAlive.Dispose()
+        document.body.removeChild host |> ignore
+    }
+
+    // The trap, asserted rather than described: an update partially applied with a
+    // rendered store value keeps the value it was built with, because the program is
+    // built once and never again.
+    it "cannot see later store values through a partially applied update" <| fun () -> promise {
+        let host = document.createElement "div"
+        document.body.appendChild host |> ignore
+        let keepAlive = counter |> Store.subscribeImmediate ignore |> snd
+
+        counter.Update(fun _ -> 100)
+        host.innerHTML <- "<mixed-stale></mixed-stale>"
+        do! Promise.sleep 100
+
+        counter.Update(fun _ -> 200)
+        do! Promise.sleep 100
+
+        (host.querySelector "button" :?> Browser.Types.HTMLElement).click ()
+        do! Promise.sleep 100
+
+        if Mixed.updateSawTheme <> "100" then
+            failwith
+                $"the update saw {Mixed.updateSawTheme}; if this is now 200 the program is being rebuilt per render and the warning in the docs is wrong"
+
+        keepAlive.Dispose()
+        document.body.removeChild host |> ignore
+    }
