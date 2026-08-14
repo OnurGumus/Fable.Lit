@@ -39,10 +39,8 @@ module Hydrate =
     /// shadow root is a DocumentFragment, and markup that arrived as
     /// `<template shadowrootmode="open">` is adopted there rather than on its host.
     let adopt (container: #Node) (template: TemplateResult) =
-        try
-            hydrateImpl (box template) (container :> Node) (box {|  |})
-        with error ->
-            Browser.Dom.console.warn ("lit could not adopt the server markup; rendering instead.", error)
+        let renderInstead (reason: obj) =
+            Browser.Dom.console.warn ("lit could not adopt the server markup; rendering instead.", reason)
 
             // Emptied first. lit's `render` inserts its part into a container rather than
             // replacing what is already there, so rendering over markup it has just
@@ -53,3 +51,17 @@ module Hydrate =
             // which has innerHTML but is not an Element.
             (box container)?innerHTML <- ""
             Lit.render container template
+
+        try
+            hydrateImpl (box template) (container :> Node) (box {|  |})
+
+            // Not every refusal is thrown. A container with no root marker in it -- an
+            // empty element, or markup rendered without `renderHydratable` -- is reported
+            // by lit to the console and nowhere else, and hydrate returns as if it had
+            // worked, leaving the container empty and no part on it. Left alone that is a
+            // blank island and a message most people never see, so it is treated as what
+            // it is: adoption did not happen, render instead.
+            if isNull ((box container)?("_$litPart$")) then
+                renderInstead (box "the container held no markers to adopt")
+        with error ->
+            renderInstead (box error)

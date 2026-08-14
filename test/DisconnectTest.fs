@@ -265,3 +265,30 @@ describe "Disconnecting" <| fun () ->
 
         document.body.removeChild holder |> ignore
     }
+
+    // Adoption that lit declines without throwing.
+    //
+    // An empty container, or markup rendered without the markers, is reported to the
+    // console and nowhere else: hydrate returns as though it had worked and leaves the
+    // container as it found it. Anything relying on the exception to notice sees a blank
+    // island and a message nobody reads.
+    it "renders when there is nothing to adopt, rather than leaving the container empty" <| fun () -> promise {
+        let el = host ()
+        let mutable clicks = 0
+
+        Hydrate.adopt el (SharedViews.clickable (fun () -> clicks <- clicks + 1))
+        do! Promise.sleep 50
+
+        let button = el.querySelector "button.act"
+
+        if isNull button then
+            failwith "nothing was rendered into a container that had nothing to adopt"
+
+        (button :?> Browser.Types.HTMLElement).click ()
+        do! Promise.sleep 50
+
+        if clicks <> 1 then
+            failwith "what was rendered is not wired up"
+
+        document.body.removeChild el |> ignore
+    }
