@@ -88,6 +88,7 @@ type HookContext(host: HookContextHost) =
     let _states = ResizeArray<obj>()
     let _effects = ResizeArray<Effect>()
     let _disposables = ResizeArray<IDisposable>()
+    let mutable _torn = false
 
     member _.host: obj = upcast host
 
@@ -167,6 +168,20 @@ type HookContext(host: HookContextHost) =
             disp.Dispose()
 
         _disposables.Clear()
+        _torn <- true
+
+    /// Put back what `disconnect` tore down, and only then.
+    ///
+    /// Connecting is not always re-connecting: the first `connectedCallback` arrives
+    /// before the first render, when there is nothing to re-establish, and the first
+    /// render runs the effects itself. Running them here as well would be invisible at
+    /// that moment and wrong afterwards -- `runEffects` defers, so by the time it looked
+    /// at the list the first render would have filled it, and every effect on a freshly
+    /// mounted component would run twice.
+    member this.reconnect() =
+        if _torn then
+            _torn <- false
+            this.runEffects (onConnected = true, onRender = false)
 
     member this.useState(init: unit -> 'T) : 'T * ('T -> unit) =
         this.checkRendering ()
@@ -357,7 +372,7 @@ type HookDirective() =
     // so we need to re-run the effects but the old state is kept
     // https://lit.dev/docs/api/custom-directives/#AsyncDirective
     member _.reconnected() =
-        _hooks.runEffects (onConnected = true, onRender = false)
+        _hooks.reconnect()
 
 #if DEBUG
     interface HMRSubscriber with

@@ -214,12 +214,20 @@ type LitHookElement<'Props>(initProps: obj -> unit) =
         base.disconnectedCallback()
         _hooks.disconnect()
 
-    // The HookContext already renders the effects on first run so we don't need to do it from here
-    // TODO: Not sure if it's possible for the same LitElement instance to be reconnected to the DOM after being disconnected
-
-    // member _.connectedCallback() =
-    //     base.connectedCallback()
-    //     _hooks.runEffects (onConnected = true, onRender = false)
+    /// It is possible, and it is ordinary: an element that is *moved* -- appended
+    /// somewhere else, reordered by a drag, re-parented by a list re-render -- is
+    /// disconnected and connected again, with the same instance and its state intact.
+    /// `disconnectedCallback` has by then disposed everything `useEffectOnce` set up, so
+    /// without this the second life of the element has no subscriptions, no listeners and
+    /// no timers, and nothing anywhere reports that. The directive form of a hook
+    /// component has always done this on reconnection; a LitElement did not.
+    ///
+    /// Safe on the first connection, which happens before the first render: effects are
+    /// registered while rendering, so there are none to run yet, and the first run is
+    /// still `HookContext.render`'s. The two cannot both fire for one connection.
+    member _.connectedCallback() =
+        base.connectedCallback()
+        _hooks.reconnect()
 
 #if DEBUG
     interface HMRSubscriber with
