@@ -5,9 +5,12 @@
 /// afterwards without either having been told about the other.
 module StoreTest
 
+open System
 open Browser
+open Elmish
 open Fable
 open Lit
+open Lit.Elmish
 open LitStore
 open WebTestRunner
 
@@ -122,3 +125,68 @@ describe "Store" <| fun () ->
         keepAlive.Dispose()
         document.body.removeChild host |> ignore
      }
+
+// The other way of holding state in a component: its own Elmish loop rather than a shared
+// store. `useElmish` starts the program in the state initialiser, so the loop belongs to
+// the instance and dies with it -- except that dying is exactly what this checks, because
+// nothing in `useElmish` stops the program.
+module private OwnLoop =
+    type Msg = Tick
+
+    let mutable stopped = false
+    let mutable ticks = 0
+
+    let private subscribe _ : Sub<Msg> =
+        [ [ "ticker" ],
+          fun _ ->
+              { new IDisposable with
+                  member _.Dispose() = stopped <- true } ]
+
+    let program () =
+        Program.mkHidden (fun () -> 0, Cmd.none) (fun Tick n -> ticks <- ticks + 1; n + 1, Cmd.none)
+        |> Program.withSubscription subscribe
+
+[<LitElement("elmish-own-loop")>]
+let OwnLoopElement () =
+    LitElement.init (fun config -> config.useShadowDom <- false) |> ignore
+    let n, dispatch = Hook.useElmish OwnLoop.program
+    html $"""<b class="value">{n}</b><button @click={Ev(fun _ -> dispatch OwnLoop.Tick)}>tick</button>"""
+
+describe "A component with its own Elmish loop" <| fun () ->
+
+    it "keeps running after the element leaves the document" <| fun () -> promise {
+        let host = document.createElement "div"
+        document.body.appendChild host |> ignore
+        host.innerHTML <- "<elmish-own-loop></elmish-own-loop>"
+
+        do! Promise.sleep 100
+
+        let element = host.querySelector "elmish-own-loop"
+        (element.querySelector "button" :?> Browser.Types.HTMLElement).click ()
+        do! Promise.sleep 100
+
+        if OwnLoop.ticks <> 1 then
+            failwith $"the loop did not run at all ({OwnLoop.ticks})"
+
+        let before = OwnLoop.ticks
+
+        // Out of the document, and then dispatched to anyway -- which is what a timer or
+        // a socket that outlived the element would be doing.
+        host.removeChild element |> ignore
+        do! Promise.sleep 100
+
+        (element.querySelector "button" :?> Browser.Types.HTMLElement).click ()
+        do! Promise.sleep 100
+
+        // This is documentation, not an aspiration: `useElmish` disposes the *model* if
+        // the model happens to be IDisposable, and nothing else. The program was started
+        // with `Program.run` and there is nothing holding a handle to stop it, so its
+        // subscriptions outlive the element that started them.
+        if OwnLoop.stopped then
+            failwith "useElmish stopped the program's subscriptions -- if this now happens, the note below is out of date"
+
+        if OwnLoop.ticks = before then
+            failwith "the disconnected component's loop refused a message, which it is not expected to"
+
+        document.body.removeChild host |> ignore
+    }
