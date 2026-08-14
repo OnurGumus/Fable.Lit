@@ -49,9 +49,9 @@ type Hook with
     /// </summary>
     /// <example>
     ///     [&lt;HookComponent>]
-    ///     let bays () =
-    ///         let session = Hook.useStore Session.store
-    ///         html $"""&lt;p>{session.Reserved} reserved&lt;/p>"""
+    ///     let themeBadge () =
+    ///         let theme = Hook.useStore ThemeStore.store
+    ///         html $"""&lt;span>{Theme.name theme}&lt;/span>"""
     /// </example>
     static member inline useStore<'Model>(store: IStore<'Model>) : 'Model =
         Hook.getContext().useStore<'Model> (store)

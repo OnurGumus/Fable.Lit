@@ -76,7 +76,7 @@ jobs:
       # test and sample projects.
       - name: Pack
         run: |
-          for p in Lit Lit.Elmish Lit.Test Lit.Feliz Lit.React Lit.Server ConstructStyleSheetsPolyfill; do
+          for p in Lit Lit.Elmish Lit.Test Lit.Feliz Lit.React Lit.Server Lit.Store ConstructStyleSheetsPolyfill; do
             dotnet pack "src/$p/$p.fsproj" -c Release --no-build \
               -o nupkgs -p:Version=${{ steps.version.outputs.value }}
           done
