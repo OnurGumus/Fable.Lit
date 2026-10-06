@@ -43,19 +43,43 @@ type HookContext with
 
         let subscribe () = store |> Store.subscribeImmediate (fun value -> sink.Value value)
 
+        // Safe to ask for twice. Two things can ask on the same departure: the effect
+        // below, and the arrangement the initialiser makes in case no effect ever runs.
+        let letGo =
+            Hook.createDisposable (fun () ->
+                if not (isNull (box held.Value)) then
+                    held.Value.Dispose()
+                    held.Value <- Unchecked.defaultof<IDisposable>)
+
         let model, setModel =
             ctx.useState (fun () ->
                 let initial, disposable = subscribe ()
 
-                held.Value <- disposable
+                // The effect below arranges for this subscription to be dropped, and
+                // effects run a moment after the render. A component that has left by
+                // then never runs them, and the store would go on holding a
+                // subscription with a component nobody can reach on the other end. So
+                // leaving is told about it here, where it is taken.
+                //
+                // And not kept at all by a component that renders while it is out of
+                // the page, which an element put in and taken straight out again does:
+                // it has no departure coming to drop it on. The value is all this render
+                // needs; arriving will subscribe, in the effect.
+                if ctx.isConnected then
+                    held.Value <- disposable
+                    ctx.disposeOnLeaving letGo
+                else
+                    disposable.Dispose()
+
                 initial)
 
         sink.Value <- setModel
 
         ctx.useEffectOnce (fun () ->
             // First run: the initialiser's subscription is still live and this only has
-            // to arrange for its disposal. Reconnection: it went on the way out, and a
-            // new one is taken here.
+            // to arrange for its disposal. Arriving without one -- back from having
+            // left, or for the first time after rendering out of the page -- a new one
+            // is taken here.
             if isNull (box held.Value) then
                 let current, disposable = subscribe ()
                 held.Value <- disposable
@@ -67,10 +91,7 @@ type HookContext with
                 // whatever was true when it left.
                 sink.Value current
 
-            { new IDisposable with
-                member _.Dispose() =
-                    held.Value.Dispose()
-                    held.Value <- Unchecked.defaultof<IDisposable> })
+            letGo)
 
         model
 

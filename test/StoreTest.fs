@@ -40,6 +40,18 @@ let Direct () =
     let value = Hook.useStore counter
     html $"""<b class="value">{value}</b>"""
 
+/// A store of its own for the component below, which says when it has been let go of:
+/// a store tears itself down when its last subscriber leaves.
+let mutable private letGo = false
+let private brief: IStore<int> = Store.make (fun () -> 7) (fun _ -> letGo <- true) ()
+
+/// The only reader `brief` ever has.
+[<LitElement("store-brief")>]
+let Brief () =
+    LitElement.init (fun config -> config.useShadowDom <- false) |> ignore
+    let value = Hook.useStore brief
+    html $"""<b class="value">{value}</b>"""
+
 describe "Store" <| fun () ->
 
     it "renders the current value, and every reader sees a change" <| fun () -> promise {
@@ -125,6 +137,68 @@ describe "Store" <| fun () ->
         keepAlive.Dispose()
         document.body.removeChild host |> ignore
      }
+
+    // `useStore` subscribes while the component renders, because the first render needs
+    // the store's value, and leaves it to an effect to arrange for the subscription to
+    // be dropped. Effects run a moment after the render. A component that has left by
+    // then never runs them -- and its subscription used to stay, held by the store, with
+    // a component nobody can reach on the other end of it.
+    it "lets go of the store when its component leaves before its effects have run" <| fun () -> promise {
+        letGo <- false
+
+        let host = document.createElement "div"
+        document.body.appendChild host |> ignore
+
+        let el = document.createElement "store-brief"
+        host.appendChild el |> ignore
+        // Resolves as soon as the component has rendered, which is ahead of any timer.
+        do! (el :?> LitElement).updateComplete
+
+        if (el.querySelector ".value").textContent <> "7" then
+            failwith "the component did not render from the store, so this proves nothing about letting go of it"
+
+        host.removeChild el |> ignore
+        do! Promise.sleep 100
+
+        if not letGo then
+            failwith "the component has left the page and the store is still holding its subscription"
+
+        document.body.removeChild host |> ignore
+    }
+
+    // The other way to render with no departure to come. An element put in and taken
+    // straight out again still renders, a moment later, while it is out of the page. It
+    // needs the store's value for that and has no use for a subscription: nothing will
+    // ever tell it to drop one. Arriving is what subscribes.
+    it "holds no subscription while it is out of the page, and takes one when it arrives" <| fun () -> promise {
+        letGo <- false
+
+        let host = document.createElement "div"
+        document.body.appendChild host |> ignore
+
+        let el = document.createElement "store-brief"
+        host.appendChild el |> ignore
+        host.removeChild el |> ignore
+        do! (el :?> LitElement).updateComplete
+        do! Promise.sleep 100
+
+        if (el.querySelector ".value").textContent <> "7" then
+            failwith "the component did not render from the store while it was out of the page"
+
+        if not letGo then
+            failwith "a component that is not in the page is holding a subscription nothing will ever drop"
+
+        host.appendChild el |> ignore
+        do! Promise.sleep 100
+        brief.Update(fun current -> current + 1)
+        do! Promise.sleep 100
+
+        if (el.querySelector ".value").textContent <> "8" then
+            failwith "the component arrived and is not following the store"
+
+        host.removeChild el |> ignore
+        document.body.removeChild host |> ignore
+    }
 
 // The other way of holding state in a component: its own Elmish loop rather than a shared
 // store. `useElmish` starts the program in the state initialiser, so the loop belongs to

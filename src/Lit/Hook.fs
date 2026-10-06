@@ -93,6 +93,18 @@ type HookContext(host: HookContextHost) =
 
     member _.host: obj = upcast host
 
+    /// Whether the component is in the page right now.
+    member _.isConnected: bool = host.isConnected
+
+    /// Something to dispose when the component leaves, for a hook that took it on while
+    /// rendering rather than in an effect.
+    ///
+    /// An effect is the usual place to arrange for that, and effects run a moment after
+    /// the render. A component that leaves in that moment never runs them, so whatever
+    /// its render took on is never given back. This is the other way to say it, which
+    /// does not wait: leaving disposes it, whether or not any effect ever ran.
+    member _.disposeOnLeaving(disposable: IDisposable) : unit = _disposables.Add disposable
+
     // TODO: Improve error message for each situation
     member _.fail() =
         failwith "Hooks must be called consistently for each render call"
