@@ -33,6 +33,18 @@ shadow root while it reads the page.
 Event handlers are dropped on the server — a closure cannot be serialised — and become
 real listeners the moment lit adopts the markup.
 
+## What it refuses
+
+Anything it cannot render the way lit would raises `UnsupportedTemplateValue` rather than
+guessing. Two of those are easy to reach for:
+
+- A `Node` in a hole, which is what putting a shadow root *inside* a view looks like. A
+  view is the same code the browser runs, and there is no `Node` there. Compose the other
+  way round: the template's `Node` into the page's hole.
+- A `<template>` element in markup lit is going to adopt. lit never looks inside one, so
+  every binding after it would silently never be made. Plain `render` and `toNode` write
+  it as it stands.
+
 There is a worked example at
 [LitHydrationDemo](https://github.com/OnurGumus/LitHydrationDemo).
 

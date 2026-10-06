@@ -108,3 +108,66 @@ let ``an element after a raw text element still counts`` () =
 let ``a hole in a quoted attribute value renders inside the quotes`` () =
     let name = "crate"
     Assert.Equal("""<i title="a crate"></i>""", render (html $"""<i title="a {name}"></i>"""))
+
+// ---- what a template cannot hold ----
+
+[<Fact>]
+let ``a Node in a text hole is refused`` () =
+    // toNode, toHydratableNode and toShadowRootNode all return a Node, and a hole takes
+    // any object, so nothing stops one being dropped into a template -- which is what
+    // reaching for a shadow root inside a view looks like. It used to be rendered by its
+    // ToString, and the page showed the words "HtmlTypeProvider.Node".
+    let node = toNode (html $"<b>x</b>")
+
+    Assert.Throws<UnsupportedTemplateValue>(fun () -> render (html $"<p>{node}</p>") |> ignore)
+
+[<Fact>]
+let ``a Node as an attribute value is refused`` () =
+    let node = toNode (html $"<b>x</b>")
+
+    Assert.Throws<UnsupportedTemplateValue>(fun () -> render (html $"<p title={node}></p>") |> ignore)
+
+[<Fact>]
+let ``a Node inside a quoted attribute value is refused`` () =
+    let node = toNode (html $"<b>x</b>")
+
+    Assert.Throws<UnsupportedTemplateValue>(fun () -> render (html $"""<p title="a {node}"></p>""") |> ignore)
+
+[<Fact>]
+let ``a template element is refused in markup lit is going to adopt`` () =
+    // lit counts a <template> as one node and never looks inside it; this renderer counts
+    // everything it writes. So the element after this one is node 2 to lit and node 4
+    // here, and a marker carrying 4 does not throw: hydrate stops looking, and the
+    // binding is never made. Found with a click handler that silently did nothing.
+    let cls = "wide"
+
+    Assert.Throws<UnsupportedTemplateValue>(fun () ->
+        renderHydratable
+            (html $"""<x-frame><template shadowrootmode="open"><div><slot></slot></div></template><b class={cls}>y</b></x-frame>""")
+        |> ignore)
+
+[<Fact>]
+let ``a template element is refused even with nothing bound after it`` () =
+    // It would hydrate, by luck, and then mean something else the first time lit rendered
+    // the same view itself: the parser attaches a declarative shadow root, lit leaves an
+    // inert template. Refused on the element rather than on what happens to follow it.
+    Assert.Throws<UnsupportedTemplateValue>(fun () ->
+        renderHydratable (html $"""<x-frame><template shadowrootmode="open"><slot></slot></template></x-frame>""")
+        |> ignore)
+
+[<Fact>]
+let ``a template element is written as it stands when nothing will adopt it`` () =
+    // Plain HTML has no node indices to get wrong and no second renderer to disagree
+    // with, so a page that is only ever rendered here may say whatever it likes.
+    Assert.Equal(
+        """<x-frame><template shadowrootmode="open"><slot></slot></template></x-frame>""",
+        render (html $"""<x-frame><template shadowrootmode="open"><slot></slot></template></x-frame>""")
+    )
+
+[<Fact>]
+let ``a shadow root made by toShadowRootNode is still a template`` () =
+    // The refusal is about templates written inside a view. This one is written around
+    // it, by the renderer, and has to go on working.
+    let sb = System.Text.StringBuilder()
+    (toShadowRootNode "" (html $"<b>x</b>")).Invoke(sb)
+    Assert.StartsWith("""<template shadowrootmode="open">""", sb.ToString())

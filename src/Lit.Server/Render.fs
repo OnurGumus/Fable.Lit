@@ -132,7 +132,11 @@ module Server =
     type internal Analysis =
         { Holes: Hole[]
           /// Where to write a `<!--lit-node N-->` marker: segment, offset, index.
-          NodeMarkers: (int * int * int) list }
+          NodeMarkers: (int * int * int) list
+          /// Whether the template contains a `<template>` element. lit counts one as a
+          /// single node and never walks into its content, so past that point the count
+          /// kept here and lit's own are no longer the same count.
+          HasTemplateElement: bool }
 
     let private rawTextTags =
         System.Collections.Generic.HashSet<string>(
@@ -167,6 +171,7 @@ module Server =
         // text, so everything after the block goes uncounted and every later binding
         // appears to be inside it.
         let mutable closing = false
+        let mutable sawTemplate = false
 
         for segIndex in 0 .. segments.Length - 1 do
             let s = segments.[segIndex]
@@ -200,6 +205,10 @@ module Server =
                             j
 
                         rawTag <- s.Substring(i + 1, nameEnd - i - 1)
+
+                        if String.Equals(rawTag, "template", StringComparison.OrdinalIgnoreCase) then
+                            sawTemplate <- true
+
                         state <- 1
                         closing <- false
                         i <- nameEnd
@@ -275,7 +284,8 @@ module Server =
                     )
 
         { Holes = holes.ToArray()
-          NodeMarkers = List.ofSeq markers }
+          NodeMarkers = List.ofSeq markers
+          HasTemplateElement = sawTemplate }
 
     /// The node indices of the elements carrying attribute bindings, in template order.
     /// Exposed so a test can hold it against lit's own walk.
@@ -333,6 +343,19 @@ module Server =
           Values = [||]
           Kind = 1 }
 
+    /// What to say when a `Node` turns up where a value was expected.
+    ///
+    /// Everything this file hands out is a `Node` and a hole takes any object, so nothing
+    /// stops one being passed back in -- which is what reaching for a shadow root inside
+    /// a view looks like. Without a case of its own it fell through to `string`, and the
+    /// page was served the words "HtmlTypeProvider.Node".
+    ///
+    /// Refused rather than written out raw, because a view is the same code the browser
+    /// runs and there is no `Node` there: whatever went in here, lit would have nothing
+    /// to put in the same place.
+    let private nodeInTemplate (where: string) =
+        $"A Node cannot {where} an html template. Compose the other way round: the template's Node goes into the page's hole (toNode, toHydratableNode, toShadowRootNode), not a Node into the template's."
+
     /// The text a value contributes in text position.
     ///
     /// Through `Node.Text`, so the encoding is HtmlTypeProvider's rather than a second
@@ -344,6 +367,7 @@ module Server =
         match value with
         | null -> Node.Empty()
         | :? EvHandler -> Node.Empty()
+        | :? Node -> raise (UnsupportedTemplateValue(nodeInTemplate "fill a hole in"))
         | :? TemplateResult as t when t.Kind = 2 ->
             // A sequence: each item is a child part of its own inside the iterable's.
             match t.Values.[0] with
@@ -393,6 +417,20 @@ module Server =
         // the literal alone cannot work: prose ends in `word = ` exactly as an attribute
         // does, and `<p>total = {n}</p>` was being served as `<p>total="5"</p>`.
         let analysis = analyze t.Segments
+
+        // Only where lit will adopt the result, which is where the two counts have to
+        // agree. Written as plain HTML a template element is just markup, with no index
+        // to get wrong and no second renderer to disagree with.
+        //
+        // Refused on the element rather than on whether a binding happens to follow it.
+        // With none it would hydrate, and then mean something else the first time lit
+        // rendered the same view itself: the page's parser attaches a declarative shadow
+        // root, and lit, which builds its DOM from an inert template, never does.
+        if hydratable && analysis.HasTemplateElement then
+            raise (
+                UnsupportedTemplateValue
+                    "A <template> element cannot be part of markup lit is going to adopt. lit counts it as one node and never looks inside, so every binding after it would be looked for on the wrong node and silently never made; and a shadow root written this way is attached by the page's parser but not by lit when it renders the same view. To give an element a server-rendered shadow root, use toShadowRootNode."
+            )
 
         // Node markers have to be written in front of the element they name, so their
         // positions are worked out before anything is emitted.
@@ -452,6 +490,7 @@ module Server =
                     | :? bool as b -> parts.Add(Node.RawHtml(if b then "true" else "false"))
                     | :? TemplateResult ->
                         raise (UnsupportedTemplateValue "A nested template cannot be an attribute value.")
+                    | :? Node -> raise (UnsupportedTemplateValue(nodeInTemplate "be an attribute value in"))
                     | v -> parts.Add(Node.Text(string v))
 
                 match analysis.Holes.[i] with
@@ -520,6 +559,7 @@ module Server =
                                 UnsupportedTemplateValue
                                     $"A nested template cannot be an attribute value ({name})."
                             )
+                        | :? Node -> raise (UnsupportedTemplateValue(nodeInTemplate $"be an attribute value ({name}) in"))
                         // Node.Text encodes quotes as well as angle brackets, so it is
                         // safe in an attribute, not only in text.
                         | :? string as s -> parts.Add(Node.Text s)
