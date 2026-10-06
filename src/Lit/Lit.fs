@@ -228,13 +228,36 @@ module private ConnectionTracking =
             handlers.[tag] <- created
             created
 
+    /// The elements of each tag that are in the document right now.
+    ///
+    /// Kept because a handler can ask later than an element arrives, and on a
+    /// server-rendered page always does: the element is in the markup, and defining its
+    /// tag upgrades it on the spot, before whoever asked for the tag to be defined has
+    /// been written down as listening. An arrival is only announced once, so anyone who
+    /// was not listening at that moment has to be told from here.
+    let private present = Collections.Generic.Dictionary<string, JS.Set<Element>>()
+
+    let private presentFor (tag: string) =
+        match present.TryGetValue tag with
+        | true, existing -> existing
+        | _ ->
+            let created = JS.Constructors.Set.Create<Element>()
+            present.[tag] <- created
+            created
+
     let ensureDefined (tag: string) =
         if isNull (definedFor tag) then
             let subscribers = forTag tag
+            let here = presentFor tag
 
             define (
                 tag,
                 fun el connected ->
+                    if connected then
+                        here.add el |> ignore
+                    else
+                        here.delete el |> ignore
+
                     // Nothing rendered into it yet is the ordinary case for the connected
                     // callback, which fires while the element is still being upgraded.
                     match rootPartOf el with
@@ -252,6 +275,13 @@ module private ConnectionTracking =
         let id = nextId
         nextId <- nextId + 1
         subscribers.[id] <- subscription
+
+        // Whatever is already in the document arrived before this was listening: the
+        // elements a server rendered, upgraded a few lines up, and anything a tag that
+        // was already tracked has gathered since. Their arrival is over, so it is told
+        // again here. Telling it twice would be harmless -- a subscription sets up once
+        // for an element it already holds -- but nothing else is going to tell it once.
+        (presentFor tag).forEach (fun el _ _ -> subscription.Changed(el, true))
 
         { new IDisposable with
             member _.Dispose() =
@@ -406,6 +436,10 @@ type Lit() =
     ///
     /// The first call arrives while the element is being upgraded, before anything has
     /// been rendered into it, so a handler that expects content has to allow for that.
+    ///
+    /// An element that is already in the document when this is called has arrived as
+    /// far as the handler is concerned, and is reported straight away. That is every
+    /// element a server rendered, and every element of a tag that was already tracked.
     /// </remarks>
     /// <example>
     ///     Lit.trackConnection("my-island", fun el ->

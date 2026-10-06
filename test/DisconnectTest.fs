@@ -266,6 +266,87 @@ describe "Disconnecting" <| fun () ->
         document.body.removeChild holder |> ignore
     }
 
+    // The other order, and the one a server-rendered page is always in: the element is
+    // in the document before anything has asked to be told about it. Defining a tag
+    // upgrades what is already there, on the spot, and the handler has to hear about
+    // that arrival like any other. Otherwise what it sets up is not set up until the
+    // element has left and come back, and its first departure has nothing to dispose.
+    it "tells a handler about an element that was in the page before it asked" <| fun () -> promise {
+        let seen = ResizeArray<string>()
+
+        let holder = host ()
+        holder.innerHTML <- """<island-early id="early"></island-early>"""
+        let early = holder.querySelector "#early"
+
+        let subscription =
+            Lit.trackConnection (
+                "island-early",
+                fun _ ->
+                    seen.Add "up"
+
+                    { new IDisposable with
+                        member _.Dispose() = seen.Add "down" }
+            )
+
+        do! Promise.sleep 50
+
+        if List.ofSeq seen <> [ "up" ] then
+            failwith $"""an element already in the page was reported as {List.ofSeq seen}, not [up]"""
+
+        holder.removeChild early |> ignore
+        do! Promise.sleep 50
+
+        if List.ofSeq seen <> [ "up"; "down" ] then
+            failwith $"""its first departure was reported as {List.ofSeq seen}"""
+
+        holder.appendChild early |> ignore
+        do! Promise.sleep 50
+
+        if List.ofSeq seen <> [ "up"; "down"; "up" ] then
+            failwith $"""its return was reported as {List.ofSeq seen}"""
+
+        subscription.Dispose()
+        document.body.removeChild holder |> ignore
+    }
+
+    // And the same for a tag that is already being tracked, where there is no upgrade to
+    // hear: the element arrived long ago, and a second handler is as entitled to know it
+    // is there as the first.
+    it "tells a later handler about elements that are already being tracked" <| fun () -> promise {
+        let seen = ResizeArray<string>()
+
+        Lit.trackConnection "island-settled"
+
+        let holder = host ()
+        holder.innerHTML <- """<island-settled id="settled"></island-settled>"""
+        let settled = holder.querySelector "#settled"
+        do! Promise.sleep 50
+
+        let subscription =
+            Lit.trackConnection (
+                "island-settled",
+                fun _ ->
+                    seen.Add "up"
+
+                    { new IDisposable with
+                        member _.Dispose() = seen.Add "down" }
+            )
+
+        do! Promise.sleep 50
+
+        if List.ofSeq seen <> [ "up" ] then
+            failwith $"""an element that was already tracked was reported as {List.ofSeq seen}, not [up]"""
+
+        holder.removeChild settled |> ignore
+        do! Promise.sleep 50
+
+        if List.ofSeq seen <> [ "up"; "down" ] then
+            failwith $"""its departure was reported as {List.ofSeq seen}"""
+
+        subscription.Dispose()
+        document.body.removeChild holder |> ignore
+    }
+
     // Adoption that lit declines without throwing.
     //
     // An empty container, or markup rendered without the markers, is reported to the
