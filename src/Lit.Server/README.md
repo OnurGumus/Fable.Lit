@@ -63,14 +63,36 @@ The component must render, first time, what the server rendered: the same view f
 same data. Without `Hydrate.elements ()` it draws a second copy beside the server's, and
 says so in the console.
 
+### Inside a view
+
+`toShadowRootNode` fills a hole in a page template. A component that sits inside an
+island's view, or inside another component's, has a view around it instead, and
+`Lit.shadowRoot` is the same thing where a view can reach it:
+
+```fsharp
+let view model dispatch =
+    html $"""<section>
+               <my-badge>{Lit.shadowRoot Badge.styles (Badge.view model.Count ignore)}</my-badge>
+               <button @click={Ev(fun _ -> dispatch Reset)}>reset</button>
+             </section>"""
+```
+
+On the server it writes the component's shadow root into its tag. In the browser it is
+`Lit.nothing`, because there a component draws its own root. It has to come first inside
+the element, which is the element the parser attaches the root to.
+
+If the view hands the component a property (`.count={model.Count}`), the property is not
+in the HTML, so the component is marked `defer-hydration` and waits: hydrating the view
+takes the mark off and sets the property in the same pass.
+
 ## What it refuses
 
 Anything it cannot render the way lit would raises `UnsupportedTemplateValue` rather than
 guessing. Two of those are easy to reach for:
 
-- A `Node` in a hole, which is what putting a shadow root *inside* a view looks like. A
-  view is the same code the browser runs, and there is no `Node` there. Compose the other
-  way round: the template's `Node` into the page's hole.
+- A `Node` in a hole. A view is the same code the browser runs, and there is no `Node`
+  there. For a shadow root inside a view there is `Lit.shadowRoot`; anything else
+  composes the other way round, the template's `Node` into the page's hole.
 - A `<template>` element in markup lit is going to adopt. lit never looks inside one, so
   every binding after it would silently never be made. Plain `render` and `toNode` write
   it as it stands.

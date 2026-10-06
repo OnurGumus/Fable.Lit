@@ -29,12 +29,14 @@ type TemplateResult =
     internal
         { Segments: string[]
           Values: obj[]
-          /// 0 an ordinary template, 1 `Lit.nothing`, 2 a sequence from `Lit.ofList`.
+          /// 0 an ordinary template, 1 `Lit.nothing`, 2 a sequence from `Lit.ofList`,
+          /// 3 a shadow root from `Lit.shadowRoot`.
           ///
-          /// Explicit because hydration needs to know which of the three a value is, and
-          /// they are indistinguishable by shape: `Lit.ofList` is a TemplateResult here
-          /// and a plain iterable under Fable, and lit wraps an iterable in a bare part
-          /// marker rather than one carrying a digest.
+          /// Explicit because hydration needs to know which of them a value is, and they
+          /// are indistinguishable by shape: `Lit.ofList` is a TemplateResult here and a
+          /// plain iterable under Fable, and lit wraps an iterable in a bare part marker
+          /// rather than one carrying a digest. A shadow root is the far end of that: it
+          /// is markup here and nothing at all under Fable.
           Kind: int }
 
 /// An event handler on its way into a template. The server drops it: a handler is a
@@ -136,7 +138,13 @@ module Server =
           /// Whether the template contains a `<template>` element. lit counts one as a
           /// single node and never walks into its content, so past that point the count
           /// kept here and lit's own are no longer the same count.
-          HasTemplateElement: bool }
+          HasTemplateElement: bool
+          /// For each hole, the element it comes first inside: nothing but white space
+          /// between that element's opening tag and the hole. As the element's node
+          /// index, its tag name, and where in the segment before the hole the tag's `>`
+          /// is. A shadow root may only be written there, because that is the element
+          /// the parser will attach it to. Index -1 where there is no such element.
+          Opened: (int * string * int)[] }
 
     let private rawTextTags =
         System.Collections.Generic.HashSet<string>(
@@ -172,6 +180,11 @@ module Server =
         // appears to be inside it.
         let mutable closing = false
         let mutable sawTemplate = false
+        let opened = ResizeArray<int * string * int>()
+        // The opening tag that has just ended, until something other than white space
+        // follows it: element index, tag name, segment, and offset of its `>`.
+        let mutable justOpened = (-1, "", -1, -1)
+        let nothingOpened = (-1, "", -1, -1)
 
         for segIndex in 0 .. segments.Length - 1 do
             let s = segments.[segIndex]
@@ -180,6 +193,9 @@ module Server =
             while i < s.Length do
                 match state with
                 | 0 ->
+                    if not (Char.IsWhiteSpace s.[i]) then
+                        justOpened <- nothingOpened
+
                     if i + 3 < s.Length && s.[i] = '<' && s.[i + 1] = '!' && s.[i + 2] = '-' && s.[i + 3] = '-' then
                         nodeIndex <- nodeIndex + 1
                         state <- 3
@@ -227,6 +243,9 @@ module Server =
                             elif rawTextTags.Contains rawTag then 4
                             else 0
 
+                        if not closing && state = 0 then
+                            justOpened <- (current, rawTag, segIndex, i)
+
                         closing <- false
                         i <- i + 1
                     | _ -> i <- i + 1
@@ -251,6 +270,12 @@ module Server =
 
             // The hole that follows this segment, if there is one.
             if segIndex < segments.Length - 1 then
+                // Only a hole in text position can come first inside an element, and only
+                // if the tag ended in this very segment.
+                let element, tag, inSegment, at = justOpened
+                opened.Add(if state = 0 && inSegment = segIndex then (element, tag, at) else (-1, "", -1))
+                justOpened <- nothingOpened
+
                 match state with
                 | 0 ->
                     // lit writes a comment marker where the value goes, so it counts.
@@ -285,7 +310,8 @@ module Server =
 
         { Holes = holes.ToArray()
           NodeMarkers = List.ofSeq markers
-          HasTemplateElement = sawTemplate }
+          HasTemplateElement = sawTemplate
+          Opened = opened.ToArray() }
 
     /// The node indices of the elements carrying attribute bindings, in template order.
     /// Exposed so a test can hold it against lit's own walk.
@@ -343,6 +369,35 @@ module Server =
           Values = [||]
           Kind = 1 }
 
+    /// The elements the platform lets have a shadow root, besides custom elements.
+    /// In any other the parser reports an error and leaves an inert template behind.
+    let private shadowHosts =
+        System.Collections.Generic.HashSet<string>(
+            [ "article"; "aside"; "blockquote"; "body"; "div"; "footer"; "h1"; "h2"; "h3"; "h4"; "h5"; "h6"
+              "header"; "main"; "nav"; "p"; "section"; "span" ],
+            StringComparer.OrdinalIgnoreCase)
+
+    let private canHostShadowRoot (tag: string) = tag.Contains "-" || shadowHosts.Contains tag
+
+    let private cannotHostShadowRoot (tag: string) =
+        let others = String.Join(", ", shadowHosts)
+        $"A <{tag}> element cannot have a shadow root. Custom elements can, and so can these: {others}."
+
+    /// A declarative shadow root around content that is already rendered.
+    ///
+    /// The styles are written into the root ahead of the content, raw on purpose and the
+    /// one place in this file that is: a stylesheet is not text content and escaping it
+    /// would break it; what goes in here is yours, not a visitor's.
+    let private shadowRootAround (styles: string) (content: Node) =
+        Node.Fragment
+            [ Node.RawHtml "<template shadowrootmode=\"open\">"
+              (if String.IsNullOrWhiteSpace styles then
+                   Node.Empty()
+               else
+                   Node.Fragment [ Node.RawHtml "<style>"; Node.RawHtml styles; Node.RawHtml "</style>" ])
+              content
+              Node.RawHtml "</template>" ]
+
     /// What to say when a `Node` turns up where a value was expected.
     ///
     /// Everything this file hands out is a `Node` and a hole takes any object, so nothing
@@ -352,9 +407,15 @@ module Server =
     ///
     /// Refused rather than written out raw, because a view is the same code the browser
     /// runs and there is no `Node` there: whatever went in here, lit would have nothing
-    /// to put in the same place.
+    /// to put in the same place. The one thing worth putting in a view that only the
+    /// server writes is a component's shadow root, and that has a value of its own,
+    /// `Lit.shadowRoot`, which both sides understand.
     let private nodeInTemplate (where: string) =
-        $"A Node cannot {where} an html template. Compose the other way round: the template's Node goes into the page's hole (toNode, toHydratableNode, toShadowRootNode), not a Node into the template's."
+        $"A Node cannot {where} an html template. For a component's shadow root inside a view, use Lit.shadowRoot. Anything else composes the other way round: the template's Node goes into the page's hole (toNode, toHydratableNode, toShadowRootNode), not a Node into the template's."
+
+    /// What to say when a shadow root is anywhere but first inside an element.
+    let private shadowRootOutOfPlace =
+        "Lit.shadowRoot has to fill the hole that comes first inside the element it belongs to, as in <my-element>{Lit.shadowRoot styles view}</my-element>: that is the element the parser attaches it to. In a page template, where there is no view around the element, use toShadowRootNode."
 
     /// The text a value contributes in text position.
     ///
@@ -368,6 +429,7 @@ module Server =
         | null -> Node.Empty()
         | :? EvHandler -> Node.Empty()
         | :? Node -> raise (UnsupportedTemplateValue(nodeInTemplate "fill a hole in"))
+        | :? TemplateResult as t when t.Kind = 3 -> raise (UnsupportedTemplateValue shadowRootOutOfPlace)
         | :? TemplateResult as t when t.Kind = 2 ->
             // A sequence: each item is a child part of its own inside the iterable's.
             match t.Values.[0] with
@@ -410,6 +472,9 @@ module Server =
     /// second renderer that emitted them would eventually disagree with this one about
     /// something else.
     and internal toNodeCore (hydratable: bool) (isRoot: bool) (t: TemplateResult) : Node =
+        if t.Kind = 3 then
+            raise (UnsupportedTemplateValue shadowRootOutOfPlace)
+
         let parts = ResizeArray<Node>()
 
         // The scanner runs for every render, not only the hydratable one, because it is
@@ -429,7 +494,7 @@ module Server =
         if hydratable && analysis.HasTemplateElement then
             raise (
                 UnsupportedTemplateValue
-                    "A <template> element cannot be part of markup lit is going to adopt. lit counts it as one node and never looks inside, so every binding after it would be looked for on the wrong node and silently never made; and a shadow root written this way is attached by the page's parser but not by lit when it renders the same view. To give an element a server-rendered shadow root, use toShadowRootNode."
+                    "A <template> element cannot be part of markup lit is going to adopt. lit counts it as one node and never looks inside, so every binding after it would be looked for on the wrong node and silently never made; and a shadow root written this way is attached by the page's parser but not by lit when it renders the same view. To give an element a server-rendered shadow root, use Lit.shadowRoot inside a view, or toShadowRootNode in a page template."
             )
 
         // Node markers have to be written in front of the element they name, so their
@@ -493,8 +558,58 @@ module Server =
                     | :? Node -> raise (UnsupportedTemplateValue(nodeInTemplate "be an attribute value in"))
                     | v -> parts.Add(Node.Text(string v))
 
-                match analysis.Holes.[i] with
-                | ChildHole ->
+                match analysis.Holes.[i], value with
+                // The shadow root of the element this hole comes first inside. Under Fable
+                // the same expression is `nothing`: a component draws its own root, and
+                // what is written here is that root drawn in advance, for it to adopt.
+                | ChildHole, (:? TemplateResult as root) when root.Kind = 3 ->
+                    let element, tag, tagEnd = analysis.Opened.[i]
+
+                    if element < 0 then
+                        raise (UnsupportedTemplateValue shadowRootOutOfPlace)
+
+                    if not (canHostShadowRoot tag) then
+                        raise (UnsupportedTemplateValue(cannotHostShadowRoot tag))
+
+                    // A property never reaches the HTML, so a component that drew itself
+                    // the moment it was defined would draw without it, and then hold the
+                    // wrong template for the markup written here. `defer-hydration` is
+                    // lit's word for "not yet": hydrating this view removes it from the
+                    // element and sets the property in the same pass. The node marker
+                    // hydrate needs in order to find the element is already there,
+                    // because a property binding is a binding.
+                    //
+                    // Only where this view is going to be hydrated. Nothing else ever
+                    // takes the attribute off, and a component left waiting never starts.
+                    let handedAProperty =
+                        Seq.init i id
+                        |> Seq.exists (fun earlier ->
+                            match analysis.Holes.[earlier] with
+                            | AttrHole owner when owner = element ->
+                                let attribute = binding.Match(t.Segments.[earlier])
+                                attribute.Success && attribute.Groups.["sigil"].Value = "."
+                            | _ -> false)
+
+                    emitSegment tagEnd
+
+                    if hydratable && handedAProperty then
+                        parts.Add(Node.RawHtml " defer-hydration")
+
+                    parts.Add(Node.RawHtml(segment.Substring tagEnd))
+
+                    // Bare markers, which is what lit expects around the `nothing` it
+                    // will be given for this hole. The root's own markers are inside it,
+                    // and always there: the component adopts its root whether or not
+                    // anything adopts the view around it.
+                    if hydratable then
+                        parts.Add(Node.RawHtml "<!--lit-part-->")
+
+                    parts.Add(shadowRootAround (string root.Values.[0]) (toNodeCore true true (root.Values.[1] :?> TemplateResult)))
+
+                    if hydratable then
+                        parts.Add(Node.RawHtml "<!--/lit-part-->")
+
+                | ChildHole, _ ->
                     emitSegment segment.Length
 
                     if hydratable then
@@ -507,16 +622,16 @@ module Server =
 
                 // The quote is already open, as in `title="a {x}"`, so the value goes in
                 // as it stands and there is no name to write.
-                | QuotedHole _ ->
+                | QuotedHole _, _ ->
                     emitSegment segment.Length
                     attributeText ()
 
                 // In a tag with no `name=` in front of it: an element binding, as in
                 // `<div {Lit.refValue r}>`. A ref is a handle on a live node, so the
                 // server has nothing to write, exactly as for an event handler.
-                | AttrHole _ when not m.Success -> emitSegment segment.Length
+                | AttrHole _, _ when not m.Success -> emitSegment segment.Length
 
-                | AttrHole _ ->
+                | AttrHole _, _ ->
                     let lead = segment.Substring(0, m.Index)
                     let name = m.Groups.["name"].Value
 
@@ -601,17 +716,7 @@ module Server =
     /// On the client, hydrate the shadow root rather than its host: that is the container
     /// the markers were written into. `Program.withLitHydratedInShadowRoot` finds it.
     let toShadowRootNode (styles: string) (t: TemplateResult) =
-        Node.Fragment
-            [ Node.RawHtml "<template shadowrootmode=\"open\">"
-              (if String.IsNullOrWhiteSpace styles then
-                   Node.Empty()
-               else
-                   // Raw on purpose, and the one place in this file that is. A stylesheet
-                   // is not text content and escaping it would break it; what goes in
-                   // here is yours, not a visitor's.
-                   Node.Fragment [ Node.RawHtml "<style>"; Node.RawHtml styles; Node.RawHtml "</style>" ])
-              toHydratableNode t
-              Node.RawHtml "</template>" ]
+        shadowRootAround styles (toHydratableNode t)
 
     /// The template as an HTML string.
     let render (t: TemplateResult) =
@@ -658,3 +763,27 @@ module Server =
             { Segments = [| ""; "" |]
               Values = [| box (items :> seq<TemplateResult>) |]
               Kind = 2 }
+
+        /// The shadow root of the component this hole comes first inside, drawn in
+        /// advance.
+        ///
+        ///     <my-badge>{Lit.shadowRoot Badge.styles (Badge.view model dispatch)}</my-badge>
+        ///
+        /// It is `toShadowRootNode` where a view can reach it. That one fills a hole in a
+        /// page template, which is the only place a `Node` can go; this fills a hole in
+        /// a view, so a component that sits inside an island, or inside another
+        /// component, arrives drawn as well.
+        ///
+        /// Under Fable the same expression is `Lit.nothing`, because in the browser the
+        /// component draws its own root: when the view is rendered there for the first
+        /// time, nothing has been drawn in advance and nothing needs to be. So a shared
+        /// view says it once, and each side takes what it needs from it.
+        ///
+        /// It must be the first thing inside the element, since that is the element the
+        /// parser attaches a declarative shadow root to. A component that is handed a
+        /// property in the same view is marked `defer-hydration`, so that it adopts
+        /// after the view around it has hydrated and the property has arrived.
+        static member shadowRoot (styles: string) (view: TemplateResult) : TemplateResult =
+            { Segments = [||]
+              Values = [| box styles; box view |]
+              Kind = 3 }

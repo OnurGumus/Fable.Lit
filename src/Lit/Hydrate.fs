@@ -107,10 +107,13 @@ module Hydrate =
     /// telling a rendered tree that its element has left the page, so a hook component
     /// inside any element, adopted or not, is never torn down.
     ///
-    /// What it does not do: `defer-hydration`. A component adopts as soon as it is
-    /// defined, without waiting for a parent to hand it properties, so one whose first
-    /// render depends on a property rather than on an attribute has to be given it
-    /// another way.
+    /// A component inside a view adopts the same way, from a root written there with
+    /// `Lit.shadowRoot`, and as soon as it is defined -- unless the view hands it a
+    /// property. A property is not in the HTML, so Lit.Server marks such a component
+    /// `defer-hydration`, lit's word for "not yet", and it waits: hydrating the view
+    /// around it takes the mark off and sets the property in the same pass, and the
+    /// component adopts with what it was handed. That waiting needs nothing switched
+    /// on; a `[<LitElement>]` honours the mark wherever it finds it.
     let elements () =
         ElementAdoption.adopt <-
             Some(fun (template, root, options) ->

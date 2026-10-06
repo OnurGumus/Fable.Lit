@@ -53,9 +53,20 @@ let private fromLit (template: TemplateResult) =
 /// HTML parser discards <tr> and <td> that are not inside a table, so a row rendered
 /// into a div comes back as bare text. A template element parses fragments as written,
 /// which is also how lit parses its own templates -- so this compares like with like.
+///
+/// The shadow roots of components inside a view are removed as well. They are the one
+/// thing the two sides are meant to disagree about: the server draws them in advance,
+/// and lit, for which `Lit.shadowRoot` is nothing, leaves each component to draw its own.
+/// innerHTML does not attach them, so here they are still templates, and easy to find.
 let private fromServer (html: string) =
     let host = document.createElement "template" :?> Browser.Types.HTMLTemplateElement
     host.innerHTML <- html
+
+    let drawnInAdvance: Browser.Types.NodeList = host.content?querySelectorAll ("template[shadowrootmode]")
+
+    for root in [ for i in 0 .. int drawnInAdvance.length - 1 -> drawnInAdvance.[i] ] do
+        root.parentNode.removeChild root |> ignore
+
     stripComments (host.content :> Browser.Types.Node)
     host.innerHTML
 

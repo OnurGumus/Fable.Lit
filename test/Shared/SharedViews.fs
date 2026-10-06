@@ -56,6 +56,37 @@ let counter (model: Model) (dispatch: Msg -> unit) =
     html
         $"""<div class="counter"><p class="n">{model.Count}</p><button @click={Ev(fun _ -> dispatch Increment)}>+</button></div>"""
 
+// Views with a component inside them, whose shadow root the server draws in advance.
+// `Lit.shadowRoot` is the one expression here that means two things: markup on the
+// server, and `Lit.nothing` in the browser, where a component draws its own root.
+
+/// The stylesheet the server puts in a nested component's root.
+let nestedStyles = ".n { color: rgb(1, 2, 3); }"
+
+/// A view with a component inside it. The component draws `counter` from a count of its
+/// own, which starts at zero, and that is what is drawn for it here.
+let host (model: Model) (dispatch: Msg -> unit) =
+    let drawn = counter { Count = 0 } ignore
+
+    html
+        $"""<div class="host"><nested-counter>{Lit.shadowRoot nestedStyles drawn}</nested-counter><button class="outer" @click={Ev(fun _ -> dispatch Increment)}>{model.Count}</button></div>"""
+
+/// What a component that is handed a name draws. A different template for no name at
+/// all, and that is the point of it: a component that drew this before the name arrived
+/// would be holding the wrong template for the markup the server wrote.
+let greeting (who: string) =
+    if who = "" then
+        html $"""<i class="nobody">nobody yet</i>"""
+    else
+        html $"""<b class="somebody">{who}</b>"""
+
+/// A view that hands the component its name as a property, which never reaches the HTML.
+let introduces (who: string) =
+    let drawn = greeting who
+
+    html
+        $"""<div class="intro"><nested-greeting .who={who}>{Lit.shadowRoot nestedStyles drawn}</nested-greeting></div>"""
+
 /// The cases both runtimes render, by name. The differential test walks this list, so
 /// adding one here covers it on both sides at once.
 let cases: (string * TemplateResult) list =
@@ -70,4 +101,7 @@ let cases: (string * TemplateResult) list =
       "after-closing-tag", afterClosingTag "wide"
       "after-comment", afterComment "tall"
       "clickable", clickable ignore
-      "counter", counter { Count = 0 } ignore ]
+      "counter", counter { Count = 0 } ignore
+      // A component inside a view, and one that the view hands a property.
+      "host", host { Count = 0 } ignore
+      "introduces", introduces "Ada" ]

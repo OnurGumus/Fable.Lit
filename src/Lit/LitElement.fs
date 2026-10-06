@@ -24,6 +24,7 @@ type LitElement() =
     // the originals, and not something to call from a component.
     member internal _.createRenderRoot(): obj = jsNative
     member internal _.update(changedProperties: obj): unit = jsNative
+    member internal _.attributeChangedCallback(name: string, old: obj, value: obj): unit = jsNative
 
 module private LitElementUtil =
     module Types =
@@ -241,6 +242,21 @@ module internal ElementAdoption =
     [<Emit("Object.prototype.hasOwnProperty.call($0, 'observedAttributes')")>]
     let private litAdoptsForItself (litElement: obj) : bool = jsNative
 
+    /// Whether the server marked this element `defer-hydration`: lit's word for "not
+    /// yet". It is written on a component that a view hands a property, because the
+    /// property is not in the HTML and the component must not draw without it.
+    /// Hydrating the view around the element takes the attribute off again, and sets
+    /// the property in the same pass.
+    [<Emit("$0.hasAttribute('defer-hydration')")>]
+    let isToldToWait (element: obj) : bool = jsNative
+
+    /// Adds `defer-hydration` to the attributes the browser reports to a class, which it
+    /// only does for the ones the class lists, and reads the list once, when the element
+    /// is defined. Whatever the class listed already is found by walking up from it
+    /// rather than named, so a list lit's own hydrate support has added to is kept.
+    [<Emit("Object.defineProperty($0, 'observedAttributes', { configurable: true, get() { let from = Object.getPrototypeOf($0), inherited; while (from && !(inherited = Object.getOwnPropertyDescriptor(from, 'observedAttributes'))) from = Object.getPrototypeOf(from); const listed = inherited?.get?.call(this) ?? []; return listed.includes('defer-hydration') ? listed : [...listed, 'defer-hydration']; } })")>]
+    let observeDeferHydration (elementClass: obj) : unit = jsNative
+
     /// The duplicate described above used to arrive without a word. This is the word.
     let warnAboutToDuplicate (root: ShadowRoot) =
         if not (litAdoptsForItself jsConstructor<LitElement>) then
@@ -258,6 +274,8 @@ type LitHookElement<'Props>(initProps: obj -> unit) =
     let mutable _adopting = false
     // What that update rendered, held for the one call below that asks for it again.
     let mutable _adopted: TemplateResult option = None
+    // True while `defer-hydration` is keeping this element from starting at all.
+    let mutable _waiting = false
 #if DEBUG
     let mutable _hmrSub: IDisposable option = None
 #endif
@@ -334,9 +352,14 @@ type LitHookElement<'Props>(initProps: obj -> unit) =
 
         base.update(changedProperties)
 
+    /// An element that leaves while it is still waiting never started: lit-element was
+    /// not told it had arrived, and no hook has run. Telling either that it has left
+    /// would mark the hooks as torn down, and the first render after it does start would
+    /// then run every `useEffectOnce` twice, once as a first run and once as a return.
     member _.disconnectedCallback() =
-        base.disconnectedCallback()
-        _hooks.disconnect()
+        if not _waiting then
+            base.disconnectedCallback()
+            _hooks.disconnect()
 
     /// It is possible, and it is ordinary: an element that is *moved* -- appended
     /// somewhere else, reordered by a drag, re-parented by a list re-render -- is
@@ -349,9 +372,34 @@ type LitHookElement<'Props>(initProps: obj -> unit) =
     /// Safe on the first connection, which happens before the first render: effects are
     /// registered while rendering, so there are none to run yet, and the first run is
     /// still `HookContext.render`'s. The two cannot both fire for one connection.
-    member _.connectedCallback() =
-        base.connectedCallback()
-        _hooks.reconnect()
+    ///
+    /// None of it happens while the server's `defer-hydration` is on the element. The
+    /// view around it has not hydrated yet, so the properties that view hands it have
+    /// not arrived, and what it would draw without them is not what the server drew.
+    /// `attributeChangedCallback` below is where it starts instead.
+    member this.connectedCallback() =
+        if ElementAdoption.isToldToWait this then
+            _waiting <- true
+        else
+            _waiting <- false
+            base.connectedCallback()
+            _hooks.reconnect()
+
+    /// Where a component that was told to wait starts.
+    ///
+    /// lit's `hydrate` removes `defer-hydration` from an element as it reaches it, and
+    /// sets the element's properties straight afterwards, in the same synchronous pass.
+    /// The update this schedules runs after that pass, so the first render has them.
+    ///
+    /// Only for an element that is in the document. One that lost the attribute while
+    /// detached starts the ordinary way, in `connectedCallback`, when it comes back.
+    member this.attributeChangedCallback(name: string, old: obj, value: obj) =
+        if name = "defer-hydration" && isNull value && _waiting && this.isConnected then
+            _waiting <- false
+            base.connectedCallback()
+            _hooks.reconnect()
+
+        base.attributeChangedCallback(name, old, value)
 
 #if DEBUG
     interface HMRSubscriber with
@@ -442,6 +490,10 @@ type LitElementAttribute(name: string) =
 
             propsOptions |> Option.iter (fun props -> defineGetter(classExpr, "properties", fun () -> props))
             styles |> Option.iter (fun styles -> defineGetter(classExpr, "styles", fun () -> styles))
+
+            // So that the element hears `defer-hydration` being taken off it. See
+            // LitHookElement.attributeChangedCallback.
+            ElementAdoption.observeDeferHydration classExpr
 
             // A static getter rather than a second class expression, because that is all
             // `static formAssociated = true` is, and the browser reads it when the

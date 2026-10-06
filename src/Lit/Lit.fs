@@ -319,6 +319,30 @@ type Lit() =
     static member nothing: TemplateResult = LitBindings.nothing
 
     /// <summary>
+    /// The shadow root of the component this hole comes first inside, as the server
+    /// draws it in advance. In the browser it is nothing.
+    /// </summary>
+    /// <remarks>
+    /// For views compiled on both sides. Under Lit.Server the same expression writes the
+    /// component's view into its tag as a declarative shadow root, so a component that
+    /// sits inside an island, or inside another component, arrives drawn; with
+    /// <c>Hydrate.elements</c> switched on, the component adopts it. Here there is
+    /// nothing to write: a component draws its own root, and when lit renders this view
+    /// itself, nothing was drawn in advance and nothing needs to be.
+    ///
+    /// The arguments are what the component will draw first time: the same styles it
+    /// gives <c>config.styles</c>, and the same view from the same data.
+    /// </remarks>
+    /// <example>
+    ///     &lt;my-badge&gt;{Lit.shadowRoot Badge.styles (Badge.view model dispatch)}&lt;/my-badge&gt;
+    /// </example>
+    // Through `Lit.nothing`, not `LitBindings.nothing`. A member whose whole body is an
+    // imported value is taken by Fable 5 for another name of that import: it is emitted
+    // as `const shadowRoot = nothing` and then called with two arguments, and every view
+    // that mentions it fails as its module is loaded.
+    static member shadowRoot (styles: string) (view: TemplateResult) : TemplateResult = Lit.nothing
+
+    /// <summary>
     /// Renders a Lit TemplateResult to the container.
     /// </summary>
     /// <param name="el">The container to render into.</param>

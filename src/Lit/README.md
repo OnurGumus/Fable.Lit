@@ -40,6 +40,9 @@ let Counter () =
 - `Hydrate.elements` lets a `LitElement` do the same with a shadow root the server
   rendered for it, instead of drawing a second copy beside it, and `Lit.unsafeCSS` gives
   it the stylesheet both sides share.
+- `Lit.shadowRoot` is how a shared view says what a component inside it draws: the
+  component's shadow root on the server, nothing in the browser. A component the view
+  hands a property waits for the view to hydrate before it adopts (`defer-hydration`).
 - `config.formAssociated` makes a `LitElement` visible to a form, so `attachInternals`
   works and a custom control can contribute a value to submission.
 - Elements that are *moved* rather than removed keep working: reconnecting re-establishes

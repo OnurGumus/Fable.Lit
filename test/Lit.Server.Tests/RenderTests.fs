@@ -171,3 +171,136 @@ let ``a shadow root made by toShadowRootNode is still a template`` () =
     let sb = System.Text.StringBuilder()
     (toShadowRootNode "" (html $"<b>x</b>")).Invoke(sb)
     Assert.StartsWith("""<template shadowrootmode="open">""", sb.ToString())
+
+// ---- a shadow root inside a view ----
+
+/// What toShadowRootNode writes for a view, as a string.
+let private shadowRootOf (styles: string) (view: TemplateResult) =
+    let sb = System.Text.StringBuilder()
+    (toShadowRootNode styles view).Invoke(sb)
+    sb.ToString()
+
+[<Fact>]
+let ``a shadow root fills the hole that comes first inside its element`` () =
+    // The same thing toShadowRootNode writes at page level, where a view can reach it:
+    // a component that sits inside a view arrives drawn, like one that sits in the page.
+    let drawn = html $"<b>{1}</b>"
+    let styles = "b { margin: 0 }"
+
+    Assert.Equal(
+        "<x-a>" + shadowRootOf styles drawn + "</x-a>",
+        render (html $"""<x-a>{Lit.shadowRoot styles drawn}</x-a>""")
+    )
+
+[<Fact>]
+let ``a shadow root in markup lit will adopt sits between bare markers`` () =
+    // On the client this hole holds `nothing`, and a bare marker is what lit expects
+    // around nothing. The root's own markers are inside it, where the component looks.
+    let drawn = html $"<b>{1}</b>"
+    let around = html $"""<x-a>{Lit.shadowRoot "" drawn}</x-a>"""
+
+    Assert.Equal(
+        $"<!--lit-part {digest around}--><x-a><!--lit-part-->"
+        + shadowRootOf "" drawn
+        + "<!--/lit-part--></x-a><!--/lit-part-->",
+        renderHydratable around
+    )
+
+[<Fact>]
+let ``light content may follow the shadow root`` () =
+    // Slotted content is the ordinary reason to have both.
+    let frame = html $"<slot></slot>"
+
+    Assert.Equal(
+        "<x-a>" + shadowRootOf "" frame + "<i>slotted</i></x-a>",
+        render (html $"""<x-a>{Lit.shadowRoot "" frame}<i>slotted</i></x-a>""")
+    )
+
+[<Fact>]
+let ``white space may come between the tag and its shadow root`` () =
+    let drawn = html $"<b>x</b>"
+    let rendered = render (html $"""<x-a>
+        {Lit.shadowRoot "" drawn}</x-a>""")
+
+    Assert.StartsWith("<x-a>", rendered)
+    Assert.Contains(shadowRootOf "" drawn, rendered)
+
+[<Fact>]
+let ``a component handed a property is told to wait for the view around it`` () =
+    // A property never reaches the HTML, so a component that drew itself the moment it
+    // was defined would draw without it. `defer-hydration` is lit's own word for "not
+    // yet": hydrating the view around the element removes it, and sets the property on
+    // the way. The node marker that tells hydrate where to look is there already,
+    // because a property binding is a binding.
+    let drawn = html $"<b>x</b>"
+    let value = box 5
+
+    Assert.StartsWith(
+        "<!--lit-part",
+        renderHydratable (html $"""<x-a .count={value}>{Lit.shadowRoot "" drawn}</x-a>""")
+    )
+
+    Assert.Contains(
+        "<!--lit-node 0--><x-a defer-hydration><!--lit-part--><template",
+        renderHydratable (html $"""<x-a .count={value}>{Lit.shadowRoot "" drawn}</x-a>""")
+    )
+
+[<Fact>]
+let ``a component handed only attributes is not made to wait`` () =
+    // Everything it needs is in the markup, so it can adopt as soon as it is defined.
+    let drawn = html $"<b>x</b>"
+    let label = "crate"
+    let rendered = renderHydratable (html $"""<x-a label={label}>{Lit.shadowRoot "" drawn}</x-a>""")
+
+    Assert.Contains("""<x-a label="crate"><!--lit-part--><template""", rendered)
+    Assert.DoesNotContain("defer-hydration", rendered)
+
+[<Fact>]
+let ``nothing is made to wait in markup nobody will hydrate`` () =
+    // Only hydrating the view around it takes the attribute off again. Plain HTML has
+    // no such step, and a component left waiting for it would never start.
+    let drawn = html $"<b>x</b>"
+    let value = box 5
+    let rendered = render (html $"""<x-a .count={value}>{Lit.shadowRoot "" drawn}</x-a>""")
+
+    Assert.StartsWith("<x-a><template", rendered)
+    Assert.DoesNotContain("defer-hydration", rendered)
+
+[<Fact>]
+let ``a shadow root that does not come first inside an element is refused`` () =
+    // Written anywhere else the parser would attach it to whatever element happened to
+    // be open, and that element's own content would vanish behind it.
+    let drawn = html $"<b>x</b>"
+
+    Assert.Throws<UnsupportedTemplateValue>(fun () ->
+        render (html $"""<x-a><i>first</i>{Lit.shadowRoot "" drawn}</x-a>""") |> ignore)
+    |> ignore
+
+    Assert.Throws<UnsupportedTemplateValue>(fun () ->
+        render (html $"""<x-a>text {Lit.shadowRoot "" drawn}</x-a>""") |> ignore)
+    |> ignore
+
+    Assert.Throws<UnsupportedTemplateValue>(fun () -> render (html $"""{Lit.shadowRoot "" drawn}""") |> ignore)
+
+[<Fact>]
+let ``a shadow root inside an element that cannot have one is refused`` () =
+    // The platform lets custom elements and a short list of others host a shadow root.
+    // In anything else the parser reports an error and leaves an inert template behind.
+    let drawn = html $"<b>x</b>"
+
+    Assert.Throws<UnsupportedTemplateValue>(fun () ->
+        render (html $"""<ul>{Lit.shadowRoot "" drawn}</ul>""") |> ignore)
+    |> ignore
+
+    Assert.Throws<UnsupportedTemplateValue>(fun () ->
+        render (html $"""<input>{Lit.shadowRoot "" drawn}""") |> ignore)
+
+[<Fact>]
+let ``a shadow root is not a template to render by itself`` () =
+    // At page level it has a function of its own, which returns the Node a page wants.
+    let drawn = html $"<b>x</b>"
+
+    Assert.Throws<UnsupportedTemplateValue>(fun () -> render (Lit.shadowRoot "" drawn) |> ignore) |> ignore
+
+    Assert.Throws<UnsupportedTemplateValue>(fun () ->
+        render (html $"""<x-a>{Lit.ofList [ Lit.shadowRoot "" drawn ]}</x-a>""") |> ignore)

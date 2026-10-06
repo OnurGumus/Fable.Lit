@@ -15,6 +15,7 @@
     <Compile Include="ElmishTest.fs" />
     <Compile Include="ShadowTest.fs" />
     <Compile Include="ComponentHydrateTest.fs" />
+    <Compile Include="NestedComponentTest.fs" />
     <Compile Include="LitHydrateSupportTest.fs" />
     <Compile Include="FormElementTest.fs" />
     <Compile Include="DisconnectTest.fs" />
