@@ -70,9 +70,13 @@ island's view, or inside another component's, has a view around it instead, and
 `Lit.shadowRoot` is the same thing where a view can reach it:
 
 ```fsharp
+// Added to the Badge module above: what the server draws for a badge inside a view.
+let drawn (count: int) = Lit.shadowRoot styles (view count ignore)
+
+// A view with a badge in it.
 let view model dispatch =
     html $"""<section>
-               <my-badge>{Lit.shadowRoot Badge.styles (Badge.view model.Count ignore)}</my-badge>
+               <my-badge>{Badge.drawn model.Count}</my-badge>
                <button @click={Ev(fun _ -> dispatch Reset)}>reset</button>
              </section>"""
 ```
@@ -80,6 +84,10 @@ let view model dispatch =
 On the server it writes the component's shadow root into its tag. In the browser it is
 `Lit.nothing`, because there a component draws its own root. It has to come first inside
 the element, which is the element the parser attaches the root to.
+
+The styles and the view are paired once, in the component's own module, rather than in
+each view that uses it. `Lit.Server` does not work out a component's stylesheet, so that
+pairing is the one place the two are kept from disagreeing.
 
 If the view hands the component a property (`.count={model.Count}`), the property is not
 in the HTML, so the component is marked `defer-hydration` and waits: hydrating the view
