@@ -65,6 +65,9 @@ type LitBindings =
     [<ImportMember("lit")>]
     static member css: Template.JsTag<CSSResult> = jsNative
 
+    [<ImportMember("lit")>]
+    static member unsafeCSS(text: string) : CSSResult = jsNative
+
     /// <summary>
     /// Renders a value, usually a Lit TemplateResult, to the container.
     /// </summary>
@@ -294,6 +297,21 @@ type Lit() =
 
     /// CSS used in the Shadow DOM of LitElements
     static member css: Template.Tag<CSSResult> = css
+
+    /// <summary>
+    /// A stylesheet for a LitElement from a string, where <c>css</c> wants a literal.
+    /// </summary>
+    /// <remarks>
+    /// For styles that are written once and used on both sides: the server puts the
+    /// string in the shadow root it renders (Lit.Server's <c>toShadowRootNode</c> takes
+    /// one), and the component gives the same string to <c>config.styles</c> through
+    /// this. A shared file cannot use <c>css</c> for that, because there is no such
+    /// thing on the server.
+    ///
+    /// The name is lit's, and the warning in it is real: the text is taken as it stands,
+    /// so it must be yours and never something a visitor typed.
+    /// </remarks>
+    static member unsafeCSS(text: string) : CSSResult = LitBindings.unsafeCSS text
 
     /// <summary>
     /// Used when you don't want to render anything with Lit, usually in conditional expressions.

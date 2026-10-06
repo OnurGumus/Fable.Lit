@@ -37,6 +37,9 @@ let Counter () =
   departure.
 - `Hydrate.adopt` takes over server-rendered markup, and renders instead of failing when
   the markup cannot be adopted — including the refusal lit reports only to the console.
+- `Hydrate.elements` lets a `LitElement` do the same with a shadow root the server
+  rendered for it, instead of drawing a second copy beside it, and `Lit.unsafeCSS` gives
+  it the stylesheet both sides share.
 - `config.formAssociated` makes a `LitElement` visible to a form, so `attachInternals`
   works and a custom control can contribute a value to submission.
 - Elements that are *moved* rather than removed keep working: reconnecting re-establishes

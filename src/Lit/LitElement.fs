@@ -20,6 +20,10 @@ type LitElement() =
     member _.requestUpdate(): unit = jsNative
     /// Returns a promise that will resolve when the element has finished updating.
     member _.updateComplete: JS.Promise<unit> = jsNative
+    // Internal: these are lit-element's own, declared so that a subclass here can reach
+    // the originals, and not something to call from a component.
+    member internal _.createRenderRoot(): obj = jsNative
+    member internal _.update(changedProperties: obj): unit = jsNative
 
 module private LitElementUtil =
     module Types =
@@ -195,10 +199,65 @@ type LitElementInit<'Props>() =
     interface IHookProvider with
         member _.hooks = failInit()
 
+/// How a component comes to take over a shadow root the server drew.
+///
+/// A component can arrive with its shadow root already attached: the server wrote a
+/// `<template shadowrootmode="open">` inside its tag (Lit.Server's `toShadowRootNode`),
+/// and the HTML parser attached it while reading the page. Rendering into that root the
+/// ordinary way draws a second copy beside the first, and the first -- the one the
+/// reader has been looking at -- is wired to nothing.
+///
+/// Switched on from `Hydrate.elements` rather than here, so that this file goes on
+/// importing nothing from @lit-labs/ssr-client. Hydrate is the one file that does.
+module internal ElementAdoption =
+    /// Filled by `Hydrate.elements`: adopts the markup in a root, or clears it so that an
+    /// ordinary render can follow. Until it is filled a component renders as it always has.
+    let mutable adopt: (TemplateResult * ShadowRoot * obj -> unit) option = None
+
+    /// lit's own, and the half of lit-element's `createRenderRoot` that is still wanted
+    /// when the root is already there.
+    [<ImportMember("lit")>]
+    let private adoptStyles (root: ShadowRoot) (styles: obj) : unit = jsNative
+
+    /// The stylesheets lit-element worked out for this element's class when it was
+    /// defined. Emitted, because the dynamic operator renames `constructor`.
+    [<Emit("$0.constructor.elementStyles")>]
+    let private stylesOf (element: obj) : obj = jsNative
+
+    /// The component's own stylesheets, onto a root it did not create.
+    let adoptOwnStyles (element: obj) (root: ShadowRoot) = adoptStyles root (stylesOf element)
+
+    /// A root part marker directly inside the root, which is where every renderer that
+    /// speaks lit's protocol writes one. A root carrying only a stylesheet -- sent ahead
+    /// so the component is not unstyled while its script loads -- has none: there is no
+    /// markup in it to adopt or to duplicate, and lit-element renders in front of the
+    /// style element as it always has.
+    [<Emit("Array.prototype.some.call($0.childNodes, (n) => n.nodeType === 8 && n.data.startsWith('lit-part'))")>]
+    let holdsServerMarkup (root: ShadowRoot) : bool = jsNative
+
+    /// Whether the page applied lit's own `lit-element-hydrate-support`, which gives
+    /// LitElement an `observedAttributes` of its own where it only inherited one. A page
+    /// that did has made its arrangements, and is left to them.
+    [<Emit("Object.prototype.hasOwnProperty.call($0, 'observedAttributes')")>]
+    let private litAdoptsForItself (litElement: obj) : bool = jsNative
+
+    /// The duplicate described above used to arrive without a word. This is the word.
+    let warnAboutToDuplicate (root: ShadowRoot) =
+        if not (litAdoptsForItself jsConstructor<LitElement>) then
+            let tag: string = root?host?localName
+
+            console.warn (
+                $"<{tag}> arrived with a shadow root the server rendered, and nothing is set to adopt it, so it is about to be rendered a second time beside the server's copy. Call Hydrate.elements() once at startup."
+            )
+
 [<AbstractClass; AttachMembers>]
 type LitHookElement<'Props>(initProps: obj -> unit) =
     inherit LitElement()
     let _hooks = HookContext(jsThis)
+    // Set between finding a root the server drew and the first update, which adopts it.
+    let mutable _adopting = false
+    // What that update rendered, held for the one call below that asks for it again.
+    let mutable _adopted: TemplateResult option = None
 #if DEBUG
     let mutable _hmrSub: IDisposable option = None
 #endif
@@ -208,7 +267,72 @@ type LitHookElement<'Props>(initProps: obj -> unit) =
     abstract __name: string
 
     member _.render() =
-        _hooks.render()
+        match _adopted with
+        | Some template ->
+            _adopted <- None
+            template
+        | None -> _hooks.render()
+
+    /// Takes the root that is already there instead of asking lit-element for one.
+    ///
+    /// Not through lit-element, for one reason: it remembers the root's first child as
+    /// the node to render in front of, and lit then looks for its root part on that node
+    /// rather than on the root. It would not find the part adoption is about to leave on
+    /// the root, and would render a second copy after all. Returned as it stands, the
+    /// root is where both look.
+    ///
+    /// The component's own stylesheets are adopted as they always are, alongside the
+    /// `<style>` the server wrote. The server's covers the time before any script has
+    /// run; the component's is the one a hot update replaces, and the only one there is
+    /// when the server sent the markup without styles. The same rules twice is harmless.
+    member this.createRenderRoot() : obj =
+        let root = this.shadowRoot
+
+        if isNull (box root) || not (ElementAdoption.holdsServerMarkup root) then
+            base.createRenderRoot()
+        else
+            match ElementAdoption.adopt with
+            | Some _ ->
+                ElementAdoption.adoptOwnStyles this root
+                _adopting <- true
+                box root
+            | None ->
+                ElementAdoption.warnAboutToDuplicate root
+                base.createRenderRoot()
+
+    /// Adopts on the first update, then lets lit-element carry on as usual.
+    ///
+    /// Before lit-element's own update, not instead of it. What follows is an ordinary
+    /// render of the template that was just adopted: lit finds the part adoption left on
+    /// the root, sees every value is the one already there, and touches nothing. What it
+    /// does do is hand lit-element that part, and lit-element only tells a tree that its
+    /// element has left the page through the part it was handed. Skip this and a hook
+    /// component inside an adopted element is never torn down -- which is exactly what
+    /// lit's own `lit-element-hydrate-support` does, and why this is not built on it.
+    ///
+    /// The component's function runs once. `render` above hands lit-element the template
+    /// made here rather than calling it a second time, which would run every
+    /// `Hook.useEffect` of the first render twice.
+    member this.update(changedProperties: obj) =
+        if _adopting then
+            match ElementAdoption.adopt with
+            | Some adopt ->
+                let template = _hooks.render ()
+                // After the function has returned, not before: one that throws on its
+                // first run and succeeds on a later one should still find the server's
+                // markup waiting to be adopted, not render beside it.
+                _adopting <- false
+                _adopted <- Some template
+
+                // As lit-element does ahead of its own first render, so that a tree
+                // adopted while its element is out of the document knows as much.
+                let options: obj = this?renderOptions
+                options?isConnected <- this.isConnected
+
+                adopt (template, this.shadowRoot, options)
+            | None -> _adopting <- false
+
+        base.update(changedProperties)
 
     member _.disconnectedCallback() =
         base.disconnectedCallback()

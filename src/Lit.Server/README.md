@@ -33,6 +33,36 @@ shadow root while it reads the page.
 Event handlers are dropped on the server — a closure cannot be serialised — and become
 real listeners the moment lit adopts the markup.
 
+## A component's shadow root
+
+A `LitElement` can arrive rendered as well. Keep what it draws where both sides reach it,
+write that into the component's own tag, and switch adoption on in the browser:
+
+```fsharp
+// Shared: compiled by both.
+module Badge =
+    let styles = ":host { display: block }"
+
+    let view (count: int) (bump: unit -> unit) =
+        html $"""<button @click={Ev(fun _ -> bump ())}>{count}</button>"""
+
+// Server: what goes inside <my-badge></my-badge> in the page.
+Server.toShadowRootNode Badge.styles (Badge.view 0 ignore)
+
+// Browser: once, at startup.
+Hydrate.elements ()
+
+[<LitElement("my-badge")>]
+let MyBadge () =
+    LitElement.init (fun config -> config.styles <- [ Lit.unsafeCSS Badge.styles ]) |> ignore
+    let count, setCount = Hook.useState 0
+    Badge.view count (fun () -> setCount (count + 1))
+```
+
+The component must render, first time, what the server rendered: the same view from the
+same data. Without `Hydrate.elements ()` it draws a second copy beside the server's, and
+says so in the console.
+
 ## What it refuses
 
 Anything it cannot render the way lit would raises `UnsupportedTemplateValue` rather than
