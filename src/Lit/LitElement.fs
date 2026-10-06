@@ -353,9 +353,8 @@ type LitHookElement<'Props>(initProps: obj -> unit) =
         base.update(changedProperties)
 
     /// An element that leaves while it is still waiting never started: lit-element was
-    /// not told it had arrived, and no hook has run. Telling either that it has left
-    /// would mark the hooks as torn down, and the first render after it does start would
-    /// then run every `useEffectOnce` twice, once as a first run and once as a return.
+    /// not told it had arrived, and no hook has run. There is nothing to tell either of
+    /// them has left.
     member _.disconnectedCallback() =
         if not _waiting then
             base.disconnectedCallback()

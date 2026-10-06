@@ -47,6 +47,8 @@ let Counter () =
   works and a custom control can contribute a value to submission.
 - Elements that are *moved* rather than removed keep working: reconnecting re-establishes
   what `useEffectOnce` set up, which upstream disposes and never restores.
+- Effects are set up once per arrival, and not at all for a component that has already
+  left by the time they would run.
 
 ## Why "Unofficial"
 

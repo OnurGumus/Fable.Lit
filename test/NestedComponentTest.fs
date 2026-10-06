@@ -252,10 +252,9 @@ describe "A component inside a view" <| fun () ->
         document.body.removeChild holder |> ignore
     }
 
-    // Waiting is not having started, and leaving while waiting is not being torn down.
-    // Treat it as that and the hooks are marked as torn, so that when the component does
-    // start, its first render runs every `useEffectOnce` twice: once as a first run, and
-    // once as the return of something that had never been there.
+    // Waiting is not having started, and leaving while waiting is not being torn down:
+    // nothing was set up. When the component does start, wherever it has got to by then,
+    // what it sets up it sets up once.
     it "does not count leaving while it waits as having been torn down" <| fun () -> promise {
         tenancy.Clear()
 

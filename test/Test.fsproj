@@ -19,6 +19,7 @@
     <Compile Include="LitHydrateSupportTest.fs" />
     <Compile Include="FormElementTest.fs" />
     <Compile Include="DisconnectTest.fs" />
+    <Compile Include="EffectTimingTest.fs" />
     <Compile Include="StoreTest.fs" />
     <Compile Include="DifferentialTest.fs" />
   </ItemGroup>

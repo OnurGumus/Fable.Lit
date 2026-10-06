@@ -88,7 +88,8 @@ type HookContext(host: HookContextHost) =
     let _states = ResizeArray<obj>()
     let _effects = ResizeArray<Effect>()
     let _disposables = ResizeArray<IDisposable>()
-    let mutable _torn = false
+    // True while the effects that last for a connection (`useEffectOnce`) are set up.
+    let mutable _established = false
 
     member _.host: obj = upcast host
 
@@ -127,13 +128,36 @@ type HookContext(host: HookContextHost) =
     member this.checkRendering() =
         if not _rendering then this.fail ()
 
+    /// Runs the effects, a moment from now, against what is true by then.
+    ///
+    /// The delay is the point of an effect: it sees the DOM that was just rendered. It
+    /// is also a gap, and a component can leave the page in it, or leave and come back.
+    /// This used to act on what was true when it was asked: it set effects up for a
+    /// component that had gone by the time the timer fired, which nothing would ever
+    /// tear down, and set them up twice for one that had been asked for twice -- by its
+    /// first render and by its arrival, when it was moved before it had rendered.
+    ///
+    /// So the question is put again when the timer fires. A component that is not in
+    /// the page gets nothing: its arrival will ask. And setting up is a state, not an
+    /// event: effects that last for a connection are set up if they are not, whoever
+    /// asked and however often, and `disconnect` is what makes them "not" again.
+    ///
+    /// Not before the first render, which is what says what the effects are. lit-element
+    /// renders ahead of any timer, so nothing asks that early today; anything that did
+    /// would find no effects, and must not record that as having set them up.
     member _.runEffects(onConnected: bool, onRender: bool) =
         runAsync(fun () ->
-            _effects |> Seq.iter (function
-                | Effect.OnRender effect -> if onRender then effect ()
-                | Effect.OnConnected effect ->
-                    if onConnected then
-                        _disposables.Add(effect ())))
+            if host.isConnected then
+                let establish = onConnected && not _established && not _firstRun
+
+                _effects |> Seq.iter (function
+                    | Effect.OnRender effect -> if onRender then effect ()
+                    | Effect.OnConnected effect ->
+                        if establish then
+                            _disposables.Add(effect ()))
+
+                if establish then
+                    _established <- true)
 
     member _.setState(index: int, newValue: 'T, ?equals: 'T -> 'T -> bool) : unit =
         let equals (oldValue: 'T) (newValue: 'T) =
@@ -168,20 +192,21 @@ type HookContext(host: HookContextHost) =
             disp.Dispose()
 
         _disposables.Clear()
-        _torn <- true
+        _established <- false
 
-    /// Put back what `disconnect` tore down, and only then.
+    /// Asks for what lasts for a connection to be set up, because the component has
+    /// arrived.
     ///
-    /// Connecting is not always re-connecting: the first `connectedCallback` arrives
-    /// before the first render, when there is nothing to re-establish, and the first
-    /// render runs the effects itself. Running them here as well would be invisible at
-    /// that moment and wrong afterwards -- `runEffects` defers, so by the time it looked
-    /// at the list the first render would have filled it, and every effect on a freshly
-    /// mounted component would run twice.
+    /// Asking is all it does. The first `connectedCallback` arrives before the first
+    /// render, which asks as well, and an element that is moved asks again each time;
+    /// `runEffects` sets up once however many of them asked, so none of that needs
+    /// telling apart here. It used to be told apart, by a flag that was set on leaving,
+    /// and the flag was wrong in both directions: set for a component that had left
+    /// before it ever rendered, whose first render then set everything up a second
+    /// time, and never set for a hook component created inside an element that was out
+    /// of the page, which then arrived and set up nothing at all.
     member this.reconnect() =
-        if _torn then
-            _torn <- false
-            this.runEffects (onConnected = true, onRender = false)
+        this.runEffects (onConnected = true, onRender = false)
 
     member this.useState(init: unit -> 'T) : 'T * ('T -> unit) =
         this.checkRendering ()
