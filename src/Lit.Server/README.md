@@ -87,7 +87,8 @@ the element, which is the element the parser attaches the root to.
 
 The styles and the view are paired once, in the component's own module, rather than in
 each view that uses it. `Lit.Server` does not work out a component's stylesheet, so that
-pairing is the one place the two are kept from disagreeing.
+pairing is the one place the two are kept from disagreeing. If they do disagree, a
+development build of the component says so in the console.
 
 If the view hands the component a property (`.count={model.Count}`), the property is not
 in the HTML, so the component is marked `defer-hydration` and waits: hydrating the view

@@ -39,7 +39,8 @@ let Counter () =
   the markup cannot be adopted — including the refusal lit reports only to the console.
 - `Hydrate.elements` lets a `LitElement` do the same with a shadow root the server
   rendered for it, instead of drawing a second copy beside it, and `Lit.unsafeCSS` gives
-  it the stylesheet both sides share.
+  it the stylesheet both sides share. A development build says so when the stylesheet the
+  server sent is not the component's own.
 - `Lit.shadowRoot` is how a shared view says what a component inside it draws: the
   component's shadow root on the server, nothing in the browser. A component the view
   hands a property waits for the view to hydrate before it adopts (`defer-hydration`).

@@ -99,6 +99,9 @@ module Hydrate =
     /// The component's own `styles` are adopted as they always are, next to whatever
     /// stylesheet the server put in the root. Send one: it is what styles the component
     /// before any script has run, and `Lit.unsafeCSS` lets both sides use one string.
+    /// Send the same one, too. Nothing breaks when the two differ -- the component
+    /// arrives looking one way and changes when its script has loaded -- so a
+    /// development build says so in the console, once for each tag it finds it in.
     ///
     /// This is Fable.Lit's own components adopting, not lit's
     /// `lit-element-hydrate-support` module, for two reasons that are both pinned down

@@ -257,6 +257,67 @@ module internal ElementAdoption =
     [<Emit("Object.defineProperty($0, 'observedAttributes', { configurable: true, get() { let from = Object.getPrototypeOf($0), inherited; while (from && !(inherited = Object.getOwnPropertyDescriptor(from, 'observedAttributes'))) from = Object.getPrototypeOf(from); const listed = inherited?.get?.call(this) ?? []; return listed.includes('defer-hydration') ? listed : [...listed, 'defer-hydration']; } })")>]
     let observeDeferHydration (elementClass: obj) : unit = jsNative
 
+#if DEBUG
+    /// The stylesheet the server wrote into a root, as text: the style elements ahead of
+    /// the root part marker, which is where `toShadowRootNode` and `Lit.shadowRoot` put
+    /// it. Null when there is none. A style element after the marker is part of the
+    /// view, and is the view's business.
+    [<Emit("(() => { let text = null; for (const node of $0.childNodes) { if (node.nodeType === 8 && node.data.startsWith('lit-part')) break; if (node.localName === 'style') text = (text ?? '') + node.textContent; } return text; })()")>]
+    let private stylesheetSent (root: ShadowRoot) : string = jsNative
+
+    /// The component's own stylesheets, as text. Null when it has none, and also when
+    /// any of them is a native sheet rather than one of lit's, since that cannot be read
+    /// back as the text it was made from and so cannot be compared with anything.
+    [<Emit("(() => { const sheets = $0.constructor.elementStyles ?? []; return sheets.length === 0 || sheets.some((sheet) => typeof sheet.cssText !== 'string') ? null : sheets.map((sheet) => sheet.cssText).join(' '); })()")>]
+    let private stylesheetOwned (element: obj) : string = jsNative
+
+    /// The same rules are the same stylesheet however they are indented. One side is
+    /// usually a literal in a source file and the other the same text after it has been
+    /// through something, and a warning that went off on white space would be switched
+    /// off within the week.
+    [<Emit("$0.replace(/\\s+/g, ' ').trim()")>]
+    let private laidOutPlainly (css: string) : string = jsNative
+
+    /// The tags this has already been said about. It is a statement about how a page
+    /// was written, not about any one element on it.
+    let private toldAbout = Collections.Generic.HashSet<string>()
+
+    /// Says so when the stylesheet the server sent is not the component's own.
+    ///
+    /// A component's stylesheet is in two places once a page is running: the one the
+    /// server wrote into the root, and the one the component adopts as it starts.
+    /// Nothing makes them the same but whoever wrote the page, and nothing breaks when
+    /// they are not: the component arrives looking one way, or unstyled, and changes
+    /// when its script has loaded. On a developer's machine that is a few milliseconds
+    /// and nobody sees it; on a slow connection it is a flash on every visit.
+    ///
+    /// Development builds only. Sending something other than the component's own
+    /// stylesheet on purpose is allowed, and a page that does should not have to hear
+    /// about it in production.
+    let warnIfStylesheetsDiffer (element: obj) (root: ShadowRoot) =
+        match stylesheetOwned element with
+        | null -> ()
+        | owned ->
+            let sent = stylesheetSent root
+
+            let whatIsWrong =
+                if isNull sent then
+                    Some "without a stylesheet, and the component has one, so it arrives unstyled and changes when its script has loaded"
+                elif laidOutPlainly sent <> laidOutPlainly owned then
+                    Some "with a different stylesheet from the component's own, so it changes appearance when its script has loaded"
+                else
+                    None
+
+            let tag: string = root?host?localName
+
+            match whatIsWrong with
+            | Some what when toldAbout.Add tag ->
+                console.warn (
+                    $"<{tag}> was drawn on the server {what}. Give both the same styles: toShadowRootNode or Lit.shadowRoot on the server, config.styles on the component."
+                )
+            | _ -> ()
+#endif
+
     /// The duplicate described above used to arrive without a word. This is the word.
     let warnAboutToDuplicate (root: ShadowRoot) =
         if not (litAdoptsForItself jsConstructor<LitElement>) then
@@ -311,6 +372,9 @@ type LitHookElement<'Props>(initProps: obj -> unit) =
         else
             match ElementAdoption.adopt with
             | Some _ ->
+#if DEBUG
+                ElementAdoption.warnIfStylesheetsDiffer this root
+#endif
                 ElementAdoption.adoptOwnStyles this root
                 _adopting <- true
                 box root

@@ -81,6 +81,49 @@ let Landlord () =
     LitElement.init () |> ignore
     landlordView ()
 
+// Components for the warning about stylesheets, a tag apiece because it is said once
+// for a tag. Each draws the same view; what differs is the stylesheet it calls its own,
+// held against the one the server sends, which is `.n { color: rgb(1, 2, 3); }`.
+
+/// Has a stylesheet, and is sent none.
+[<LitElement("sheet-unsent")>]
+let SheetUnsent () =
+    LitElement.init (fun config -> config.styles <- [ Lit.unsafeCSS ".n { font-weight: 700; }" ])
+    |> ignore
+
+    SharedViews.counter { SharedViews.Count = 0 } ignore
+
+/// Has a stylesheet, and is sent a different one.
+[<LitElement("sheet-other")>]
+let SheetOther () =
+    LitElement.init (fun config -> config.styles <- [ Lit.unsafeCSS ".n { font-weight: 700; }" ])
+    |> ignore
+
+    SharedViews.counter { SharedViews.Count = 0 } ignore
+
+/// Has the stylesheet it is sent, written out differently.
+[<LitElement("sheet-same")>]
+let SheetSame () =
+    LitElement.init (fun config ->
+        config.styles <- [ Lit.unsafeCSS "\n    .n   {\n        color: rgb(1, 2, 3);\n    }\n" ])
+    |> ignore
+
+    SharedViews.counter { SharedViews.Count = 0 } ignore
+
+/// Has no stylesheet of its own, and is sent one.
+[<LitElement("sheet-none")>]
+let SheetNone () =
+    LitElement.init () |> ignore
+    SharedViews.counter { SharedViews.Count = 0 } ignore
+
+/// Has a stylesheet and is sent none, twice over.
+[<LitElement("sheet-twice")>]
+let SheetTwice () =
+    LitElement.init (fun config -> config.styles <- [ Lit.unsafeCSS ".n { font-weight: 700; }" ])
+    |> ignore
+
+    SharedViews.counter { SharedViews.Count = 0 } ignore
+
 /// A component as it arrives from a server: parsed, with the parser having attached
 /// whatever shadow root the markup carried, and not yet in the document -- so not yet
 /// upgraded, and what is in the root is the server's and nobody else's.
@@ -301,4 +344,88 @@ describe "A component the server drew" <| fun () ->
             failwith "the stylesheet that was sent ahead no longer applies"
 
         document.body.removeChild holder |> ignore
+    }
+
+// A component's stylesheet is in two places once the page is running: the one the server
+// wrote into the root, and the one the component calls its own and adopts when it
+// starts. Nothing makes them the same but whoever wrote the page, and nothing breaks
+// when they are not: the component arrives looking one way and changes when its script
+// has loaded. On a developer's machine that is a few milliseconds and nobody sees it.
+// So a development build says so, which is the build these tests are.
+describe "A component the server drew, and its stylesheet" <| fun () ->
+
+    /// A component arriving with a root, and what was said while it took it over.
+    let arriving (tags: string list) (root: string) = promise {
+        let holder = document.createElement "div"
+        setHTMLUnsafe holder (tags |> List.map (fun tag -> $"<{tag}>{root}</{tag}>") |> String.concat "")
+
+        let ear = listenToComplaints ()
+        document.body.appendChild holder |> ignore
+
+        for i in 0 .. int holder.children.length - 1 do
+            do! (holder.children.[i] :?> LitElement).updateComplete
+
+        do! Promise.sleep 50
+        ear?stop () |> ignore
+        document.body.removeChild holder |> ignore
+
+        let said: string[] = ear?said
+        return said
+    }
+
+    /// A root as the server writes it for the counter, with no stylesheet in it.
+    let unstyled (expected: obj) =
+        let content: string = expected?("counter#hydratable")
+        $"<template shadowrootmode=\"open\">{content}</template>"
+
+    it "says so when the server sent no stylesheet and the component has one" <| fun () -> promise {
+        let! expected = fetchJson "/test/server-rendered.json"
+        let! said = arriving [ "sheet-unsent" ] (unstyled expected)
+
+        if not (said |> Array.exists (fun line -> line.Contains "<sheet-unsent>" && line.Contains "without a stylesheet")) then
+            failwith $"a component with a stylesheet arrived unstyled and nothing said so: {said}"
+    }
+
+    it "says so when the stylesheet the server sent is not the component's" <| fun () -> promise {
+        let! expected = fetchJson "/test/server-rendered.json"
+        let styled: string = expected?("counter#shadow")
+        let! said = arriving [ "sheet-other" ] styled
+
+        if not (said |> Array.exists (fun line -> line.Contains "<sheet-other>" && line.Contains "different stylesheet")) then
+            failwith $"a component arrived under somebody else's stylesheet and nothing said so: {said}"
+    }
+
+    // The same rules are the same stylesheet, whatever the indentation. One side is
+    // usually a literal in a source file and the other the same text after it has been
+    // through something, and a warning that went off on white space would be switched
+    // off the first week.
+    it "says nothing when the two are the same, however each is laid out" <| fun () -> promise {
+        let! expected = fetchJson "/test/server-rendered.json"
+        let styled: string = expected?("counter#shadow")
+        let! said = arriving [ "sheet-same" ] styled
+
+        if said.Length <> 0 then
+            failwith $"the same stylesheet on both sides was complained about: {said}"
+    }
+
+    // Nothing of its own to differ from. What the server sent stays, and is all there is.
+    it "says nothing for a component that has no stylesheet of its own" <| fun () -> promise {
+        let! expected = fetchJson "/test/server-rendered.json"
+        let styled: string = expected?("counter#shadow")
+        let! said = arriving [ "sheet-none" ] styled
+
+        if said.Length <> 0 then
+            failwith $"a component with no stylesheet of its own was complained about: {said}"
+    }
+
+    // It is a statement about how the page was written, not about any one element, and
+    // a list of two hundred of them should not say it two hundred times.
+    it "says it once for a tag, however many of them arrive" <| fun () -> promise {
+        let! expected = fetchJson "/test/server-rendered.json"
+        let! said = arriving [ "sheet-twice"; "sheet-twice"; "sheet-twice" ] (unstyled expected)
+
+        let about = said |> Array.filter (fun line -> line.Contains "<sheet-twice>")
+
+        if about.Length <> 1 then
+            failwith $"three of one tag arrived and it was said {about.Length} times: {said}"
     }
