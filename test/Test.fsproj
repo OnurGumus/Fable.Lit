@@ -7,6 +7,7 @@
     <Compile Include="ImportTemplate.fs" />
     <Compile Include="DirectiveTest.fs" />
     <Compile Include="HookTest.fs" />
+    <Compile Include="EffectTimingTest.fs" />
     <Compile Include="LitElementTest.fs" />
     <Compile Include="ScopeCssTest.fs" />
   </ItemGroup>
