@@ -3,8 +3,8 @@
     "scripts": {
         "install": "dotnet tool restore",
         "publish": "dotnet fsi build.fsx publish",
-        "test": "dotnet fable test -o build/test --run web-test-runner build/test/*Test.js --node-resolve",
-        "test:watch": "dotnet fable watch test -o build/test --run web-test-runner build/test/*Test.js --node-resolve --watch",
+        "test": "dotnet fable test -o build/test --run web-test-runner",
+        "test:watch": "dotnet fable watch test -o build/test --run web-test-runner --watch",
         "start": "dotnet fable watch sample -o build/sample --run vite",
         "predocs": "shx rm -rf deploy",
         "docs": "nacara",
@@ -12,13 +12,13 @@
         "docs:deploy": "npm run docs && gh-pages -d build/docs"
     },
     "dependencies": {
-        "lit": "^2.0.0",
+        "lit": "^3.3.3",
         "react": "^17.0.2",
         "react-dom": "^17.0.2"
     },
     "devDependencies": {
-        "@web/test-runner": "^0.13.18",
-        "@web/test-runner-commands": "^0.5.13",
+        "@web/test-runner": "^0.20.2",
+        "@web/test-runner-commands": "^0.9.0",
         "bulma": "^0.9.3",
         "fable-publish-utils": "^2.2.0",
         "gatsby-remark-vscode": "^3.3.0",
@@ -26,7 +26,7 @@
         "nacara": "^1.0.0-beta-020",
         "nacara-layout-standard": "^1.0.0-beta-014",
         "shx": "^0.3.3",
-        "vite": "^2.6.14",
+        "vite": "^6.4.4",
         "vscode-theme-onelight": "github:akamud/vscode-theme-onelight"
     }
 }

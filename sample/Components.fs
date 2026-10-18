@@ -13,9 +13,7 @@ module ReactLib =
         let state, setState = React.useState 0
         React.useEffectOnce((fun () ->
             printfn "Initializing React component..."
-            React.createDisposable (fun () ->
-                printfn "Disposing React component..."
-            )
+            fun () -> printfn "Disposing React component..."
         ))
 
         Html.div [

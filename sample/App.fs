@@ -2,7 +2,6 @@ module Sample.App
 
 open Browser
 open Elmish
-open Elmish.HMR
 open Lit
 open Lit.Elmish
 open Components

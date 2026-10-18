@@ -1,0 +1,2 @@
+# The web-test-runner snapshot plugin fails to parse CRLF snapshot files
+build/test/__snapshots__/*.snap.js text eol=lf

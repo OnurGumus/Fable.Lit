@@ -73,7 +73,7 @@ let init() =
         |> IntervalId
         |> dispatch
 
-    Model.Empty, Cmd.ofSub subscribe
+    Model.Empty, Cmd.ofEffect subscribe
 
 let update msg model =
     match msg with
