@@ -1,0 +1,83 @@
+# Run this workflow when the "test" workflow completes successfully on the main branch.
+#
+# Please adapt the "test" workflow name and the branch filter to your needs.
+on:
+  workflow_run:
+    workflows: ["test"]
+    types:
+      - completed
+    branches:
+      - main
+
+permissions:
+  contents: write
+  pull-requests: write
+  id-token: write
+
+name: EasyBuild ShipIt
+
+# Learn more at https://github.com/easybuild-org/EasyBuild.ShipIt#github-actions-auto-release
+
+jobs:
+  # Generate a Pull Request to prepare a release
+  shipit-pr:
+    name: ShipIt - Pull Request
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # 'completed' fires whatever the conclusion is, so a failed test run has to be filtered out.
+    if: "github.event.workflow_run.conclusion == 'success'"
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # The changelog is generated from the commits since each CHANGELOG.md's last_commit_released,
+          # which for the first release goes back to 2021, so fetch the whole history.
+          fetch-depth: 0
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+      # --skip-invalid-commit: commits from before ShipIt was adopted don't follow Conventional Commits
+      - name: ShipIt (Pull Request)
+        run: |
+          dotnet tool restore
+          dotnet shipit --skip-invalid-commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Release your packages when the PR is merged (or if you create a 'chore: release ...' commit directly on main).
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Only trigger this workflow when a commit starting with `chore: release ` is pushed.
+    if: "github.event.workflow_run.conclusion == 'success' && startsWith(github.event.workflow_run.head_commit.message, 'chore: release ')"
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # The commit the "test" run passed on, not whatever main points at by now
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      # Trusted Publishing: exchanges the workflow's OIDC token for a short-lived NuGet API key,
+      # so no key is stored in the repository. Needs a trusted publishing policy on nuget.org for
+      # this repository and workflow file. Learn more at https://github.com/NuGet/login
+      - name: NuGet login (OIDC → temp API key)
+        uses: NuGet/login@v1
+        id: login
+        with:
+          # nuget.org user that owns the trusted publishing policy (public information)
+          user: ${{ secrets.NUGET_USER }}
+
+      # Only the packages that have a CHANGELOG.md are released. Both are packed every time;
+      # --skip-duplicate skips the one whose version didn't change in this release.
+      # The .snupkg symbol packages are pushed along with their .nupkg.
+      - name: Pack and publish
+        run: |
+            dotnet pack src/Lit/Lit.fsproj -c Release -o ./nupkgs
+            dotnet pack src/Lit.Elmish/Lit.Elmish.fsproj -c Release -o ./nupkgs
+            dotnet nuget push "./nupkgs/*.nupkg" --api-key $NUGET_KEY --source https://api.nuget.org/v3/index.json --skip-duplicate
+        env:
+          NUGET_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}

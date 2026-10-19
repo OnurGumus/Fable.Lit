@@ -12,7 +12,14 @@ Before doing anything make sure to install the dependencies after cloning the re
 
 ## How to publish a new version of the package ?
 
-`npm run publish`
+Releases are made by [EasyBuild.ShipIt](https://github.com/easybuild-org/EasyBuild.ShipIt) from [Conventional Commits](https://www.conventionalcommits.org/), so pull requests are squash-merged and their title becomes the commit message (`fix: ...`, `feat: ...`).
+
+1. After each push to `main` that passes the tests, ShipIt opens (or updates) a `chore: release ...` pull request with the new versions and `CHANGELOG.md` entries.
+2. Merging that pull request publishes the packages to NuGet.
+
+Only the packages with a `CHANGELOG.md` are released: Fable.Lit and Fable.Lit.Elmish.
+
+To preview the next release locally: `dotnet shipit --mode local --skip-invalid-commit`, then `git restore` the changed files.
 
 ## How to work on the documentation ?
 
@@ -21,6 +28,4 @@ Before doing anything make sure to install the dependencies after cloning the re
 
 ## How to update the documentation ?
 
-Deployment should be done automatically when pushing to `main` branch.
-
-If the CI is broken, you can manually deploy it by running `npm run docs:deploy`.
+Run the "Publish" workflow from the Actions tab, or deploy manually by running `npm run docs:deploy`.
