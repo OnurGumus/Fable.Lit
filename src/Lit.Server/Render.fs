@@ -11,11 +11,12 @@
 /// is precisely what a page template's hole accepts, so an island's markup drops into a
 /// server-rendered page without either side handling strings.
 ///
-/// What this is not: it does not hydrate. lit's client-side `hydrate()` only adopts
-/// markup produced by lit's own SSR, carrying marker comments this does not emit, so
-/// the client renders over whatever the server sent. That is what the islands already
-/// do with their hand-written skeletons; this only means the skeleton no longer has to
-/// be written twice.
+/// Two kinds of output. `render` and `toNode` write plain HTML, which the browser then
+/// renders over. `renderHydratable` and `toHydratableNode` also write the marker
+/// comments lit's SSR writes (`<!--lit-part DIGEST-->`, `<!--lit-node N-->`), so the
+/// browser can adopt the markup in place (`Hydrate.adopt`, `Program.withLitHydrated`)
+/// instead of rebuilding it. `toShadowRootNode` writes a view into a declarative shadow
+/// root.
 namespace Lit
 
 open System
@@ -695,7 +696,7 @@ module Server =
     ///
     /// Opt-in, and off by default, because the markers are an internal protocol of an
     /// experimental package: emit them and the client must call `hydrate` with the same
-    /// template and data, or throw. See `Lit.Server.md` for the contract, and use the
+    /// template and data, or throw. See this package's README for the contract, and use the
     /// client-side helper, which falls back to a plain render rather than leaving a
     /// half-built page.
     let toHydratableNode (t: TemplateResult) = toNodeCore true true t
