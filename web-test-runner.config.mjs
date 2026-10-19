@@ -19,7 +19,5 @@ const patchFableExpect = {
 export default {
     files: "build/test/*Test.js",
     nodeResolve: true,
-    // Tests awaiting requestAnimationFrame time out when pages run in parallel
-    concurrency: 1,
     plugins: [patchFableExpect],
 };
