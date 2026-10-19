@@ -1,7 +1,8 @@
 <Project>
     <PropertyGroup>
-        <PackageProjectUrl>http://fable.io</PackageProjectUrl>
-        <RepositoryUrl>https://github.com/fable-compiler/Fable.git</RepositoryUrl>
+        <PackageProjectUrl>https://github.com/fable-hub/Fable.Lit</PackageProjectUrl>
+        <RepositoryUrl>https://github.com/fable-hub/Fable.Lit.git</RepositoryUrl>
+        <RepositoryType>git</RepositoryType>
         <PackageLicenseFile>LICENSE</PackageLicenseFile>
         <PackageIcon>fable_logo.png</PackageIcon>
         <PackageTags>fsharp;fable;javascript;f#;js</PackageTags>
