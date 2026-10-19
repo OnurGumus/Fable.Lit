@@ -1,2 +1,5 @@
 # The web-test-runner snapshot plugin fails to parse CRLF snapshot files
 build/test/__snapshots__/*.snap.js text eol=lf
+# EasyBuild.ShipIt ignores CHANGELOG.md front matter with CRLF line endings, and silently
+# computes the wrong version
+CHANGELOG.md text eol=lf
