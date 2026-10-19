@@ -18,7 +18,9 @@ module DifferentialTest
 open Browser
 open Fable.Core
 open Fable.Core.JsInterop
+open Elmish
 open Lit
+open Lit.Elmish
 open Expect
 open WebTestRunner
 
@@ -173,6 +175,106 @@ describe "Differential" <| fun () ->
 
         if clicked <> 1 then
             failwith $"the handler did not fire after hydration (clicked = {clicked}); the event part was never created"
+
+        document.body.removeChild host |> ignore
+    }
+
+    // The failure path, which is the one that matters most: it runs when something is
+    // already wrong, and it must not make things worse. lit's render does not clear the
+    // container it is given, so a fallback that simply renders would leave the server's
+    // markup in place and append its own underneath it.
+    it "a refused adoption leaves one copy of the page, not two" <| fun () -> promise {
+        let! expected = fetchJson "/test/server-rendered.json"
+
+        let host = document.createElement "div"
+        document.body.appendChild host |> ignore
+        // Server markup for one template...
+        host.innerHTML <- (expected?("toolbar-plain#hydratable"): string)
+
+        // ...adopted with a different one. The digest will not match, hydrate throws,
+        // and Hydrate.adopt falls back to rendering.
+        Hydrate.adopt host (SharedViews.icon "i-cube")
+        do! Promise.sleep 0
+
+        let buttons = host.querySelectorAll("button").length
+        let svgs = host.querySelectorAll("svg").length
+        document.body.removeChild host |> ignore
+
+        if buttons <> 0 then
+            failwith $"the server's markup survived the fallback: {buttons} button(s) left beside the new render"
+
+        if svgs <> 1 then
+            failwith $"expected exactly one rendered icon, found {svgs}"
+    }
+
+    // Adoption that lit declines without throwing.
+    //
+    // An empty container, or markup rendered without the markers, is reported to the
+    // console and nowhere else: hydrate returns as though it had worked and leaves the
+    // container as it found it. Anything relying on the exception to notice sees a blank
+    // island and a message nobody reads.
+    it "renders when there is nothing to adopt, rather than leaving the container empty" <| fun () -> promise {
+        let el = document.createElement "div"
+        document.body.appendChild el |> ignore
+        let mutable clicks = 0
+
+        Hydrate.adopt el (SharedViews.clickable (fun () -> clicks <- clicks + 1))
+        do! Promise.sleep 50
+
+        let button = el.querySelector "button.act"
+
+        if isNull button then
+            failwith "nothing was rendered into a container that had nothing to adopt"
+
+        (button :?> Browser.Types.HTMLElement).click ()
+        do! Promise.sleep 50
+
+        if clicks <> 1 then
+            failwith "what was rendered is not wired up"
+
+        document.body.removeChild el |> ignore
+    }
+
+    // Elmish over server-rendered markup. The point is the first render: it adopts the
+    // DOM the server sent instead of replacing it, and everything after it is an
+    // ordinary Elmish render into DOM lit owns by then.
+    it "an Elmish program adopts the server's markup and then drives it" <| fun () -> promise {
+        let! expected = fetchJson "/test/server-rendered.json"
+
+        let host = document.createElement "div"
+        host.id <- "elmish-host"
+        document.body.appendChild host |> ignore
+        host.innerHTML <- (expected?("counter#hydratable"): string)
+
+        let before = host.querySelector "button"
+
+        let init () = { SharedViews.Count = 0 }, Cmd.none
+
+        let update (msg: SharedViews.Msg) (model: SharedViews.Model) =
+            match msg with
+            | SharedViews.Increment -> { model with SharedViews.Count = model.Count + 1 }, Cmd.none
+
+        Program.mkProgram init update SharedViews.counter
+        |> Program.withLitHydratedOnElement host
+        |> Program.run
+
+        do! Promise.sleep 0
+
+        let after = host.querySelector "button"
+
+        if not (obj.ReferenceEquals(before, after)) then
+            failwith "the Elmish program replaced the server's button instead of adopting it"
+
+        (after :?> Browser.Types.HTMLElement).click()
+        do! Promise.sleep 50
+
+        let shown = (host.querySelector ".n").textContent
+
+        if shown <> "1" then
+            failwith $"dispatch did not reach the view after hydration (shows {shown})"
+
+        if not (obj.ReferenceEquals(before, host.querySelector "button")) then
+            failwith "the update rebuilt the DOM instead of patching the adopted nodes"
 
         document.body.removeChild host |> ignore
     }
