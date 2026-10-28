@@ -59,7 +59,27 @@ module private LitElementUtil =
     let defineGetter(target: obj, name: string, f: unit -> 'V) = ()
 
 #if DEBUG
-    let definedElements = Collections.Generic.HashSet<string>()
+    /// The render function each element was defined with, by the key it was defined
+    /// under. A page cannot define an element twice, so when its module runs again this
+    /// is how the new run reaches the element the first one defined.
+    let definedElements = Collections.Generic.Dictionary<string, Types.RefValue<JS.Function>>()
+
+    /// Every element with this tag on the page, inside shadow roots as well.
+    let elementsNamed (name: string) : LitElement[] =
+        let found = ResizeArray<LitElement>()
+
+        let rec walk (root: obj) =
+            let all: Element[] = JS.Constructors.Array.from (root?querySelectorAll ("*"))
+
+            for el in all do
+                if el.localName = name then
+                    found.Add(unbox el)
+
+                if isNotNull el.shadowRoot then
+                    walk el.shadowRoot
+
+        walk document
+        found.ToArray()
 
     let updateStyleSheets (data: obj) (litEl: LitElement) (newCSSResults: CSSResult[]) =
         if isNotNull litEl.shadowRoot && isNotNull litEl.shadowRoot.adoptedStyleSheets && isNotNull newCSSResults then
@@ -465,6 +485,14 @@ type LitHookElement<'Props>(initProps: obj -> unit) =
         base.attributeChangedCallback(name, old, value)
 
 #if DEBUG
+    /// Draws again with a render function from a newer version of the component's
+    /// module. Development only. `data` is shared by every element one update reaches,
+    /// so that a stylesheet they share is replaced once.
+    member this.redrawWith(renderFn: JS.Function, styles: CSSResult[], data: obj) =
+        _hooks.remove_css()
+        this.renderFn <- renderFn
+        updateStyleSheets data this styles
+
     interface HMRSubscriber with
         member this.subscribeHmr = Some <| fun token ->
             match _hmrSub with
@@ -472,11 +500,9 @@ type LitHookElement<'Props>(initProps: obj -> unit) =
             | None ->
                 _hmrSub <-
                     token.Subscribe(fun info ->
-                        _hooks.remove_css()
                         let updatedModule = info.NewModule
                         let updatedExport = updatedModule?(this.__name)
-                        this.renderFn <- updatedExport?renderFn
-                        updateStyleSheets info.Data this (updatedExport?styles)
+                        this.redrawWith(updatedExport?renderFn, updatedExport?styles, info.Data)
                     )
                     |> Some
 #endif
@@ -541,13 +567,16 @@ type LitElementAttribute(name: string) =
                 else
                     None, fun _ -> ()
 
+#if DEBUG
+            let renderRef = LitBindings.createRef<JS.Function>()
+            renderRef.value <- renderFn
+#endif
+
             let classExpr =
                 let baseClass = jsConstructor<LitHookElement<obj>>
 #if !DEBUG
                 emitJsExpr (baseClass, renderFn, initProps) HookUtil.RENDER_FN_CLASS_EXPR
 #else
-                let renderRef = LitBindings.createRef()
-                renderRef.value <- renderFn
                 emitJsExpr (baseClass, renderRef, mi.Name, initProps) HookUtil.HMR_CLASS_EXPR
 #endif
 
@@ -580,9 +609,27 @@ type LitElementAttribute(name: string) =
                 | None -> mi.Name + "::" + name
                 | Some props -> mi.Name + "::" + name + "::" + (JS.Constructors.Object.keys(props) |> String.concat ", ")
 
-            if not(definedElements.Contains(cacheName)) then
+            match definedElements.TryGetValue cacheName with
+            | true, defined ->
+                // The module ran again: a hot update reached it through a module that
+                // accepts its own updates, such as an application's entry point. The
+                // element is defined already, by the first run, and a page cannot define
+                // it twice; what changed is the function that draws it. So the element is
+                // handed this run's, and everything on the page with its tag draws itself
+                // again with it. Otherwise the page goes on drawing with code that no
+                // longer exists -- against data that may come from the code replacing it,
+                // which is what an Elmish program carrying its model over hands it.
+                defined.value <- renderFn
+                let data = obj ()
+                let styles = styles |> Option.defaultValue null
+
+                for el in elementsNamed name do
+                    match box el with
+                    | :? LitHookElement<obj> as el -> el.redrawWith (renderFn, styles, data)
+                    | _ -> ()
+            | _ ->
                 defineCustomElement(name, classExpr)
-                definedElements.Add(cacheName) |> ignore
+                definedElements.[cacheName] <- renderRef
 
             // This lets us access the updated render function when accepting new modules in HMR
             dummyFn?renderFn <- renderFn

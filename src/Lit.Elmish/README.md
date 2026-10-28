@@ -31,7 +31,10 @@ let Counter () =
   `Lit.Server.Unofficial` rather than replacing it, and `Program.withLitHydratedInShadowRoot`
   does the same inside a declarative shadow root.
 - Mounting twice on one element hands over instead of colliding, which is what a hot
-  update is: the new program starts from the model the old one had reached.
+  update is: the new program starts from the model the old one had reached, rebuilt in
+  the new code's types so that its unions and records still compare equal. A model that
+  no longer fits them (a field added, a case removed) is dropped for `init`, with a
+  console warning saying what did not fit. Development builds only.
 - `Program.stopOn` stops a program mounted on an element, disposing its subscriptions and
   closing the loop, so a dispatch afterwards cannot render into an element nobody is
   looking at.

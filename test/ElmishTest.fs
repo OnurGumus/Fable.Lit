@@ -30,6 +30,62 @@ let private update (msg: SharedViews.Msg) (model: SharedViews.Model) =
     match msg with
     | SharedViews.Increment -> { model with SharedViews.Count = model.Count + 1 }, Cmd.none
 
+// The same types twice, as a module and the next version of it each define them. In
+// Fable a union case or a record is equal only to one made by the same constructor, and
+// these two copies have different ones, exactly like two versions of one module.
+module private Before =
+    type Lane =
+        | Backlog
+        | Shipped
+
+    type Tag = Tag of string
+    type Card = { Id: int; Lane: Lane }
+
+    type Model =
+        { Cards: Card list
+          Current: Lane option
+          Pair: Lane * int
+          Lanes: Lane array
+          ByLane: Map<Lane, int>
+          Tag: Tag }
+
+    type Small = { Count: int }
+
+module private After =
+    type Lane =
+        | Backlog
+        | Shipped
+
+    type Tag = Tag of string
+    type Card = { Id: int; Lane: Lane }
+
+    type Model =
+        { Cards: Card list
+          Current: Lane option
+          Pair: Lane * int
+          Lanes: Lane array
+          ByLane: Map<Lane, int>
+          Tag: Tag }
+
+    /// `Small` with a field the previous version did not have.
+    type Small = { Count: int; Label: string }
+
+/// Every place in the model a union or record is compared, answered by the new code.
+let private board (model: After.Model) =
+    let backlog = model.Cards |> List.filter (fun card -> card.Lane = After.Backlog) |> List.length
+
+    [ string backlog
+      string (model.Current = Some After.Shipped)
+      string (fst model.Pair = After.Backlog)
+      string (model.Lanes.[0] = After.Shipped)
+      string (defaultArg (Map.tryFind After.Backlog model.ByLane) -1)
+      string (model.Tag = After.Tag "t")
+      string (model.Cards.[0] = { Id = 1; Lane = After.Backlog }) ]
+    |> String.concat " "
+
+let private boardView (model: After.Model) (_: unit -> unit) =
+    html $"""<p class="n">{board model}</p>"""
+
 describe "Elmish remount" <| fun () ->
 
     // The reason anyone wants a hot update rather than a reload: the state you are
@@ -149,6 +205,91 @@ describe "Elmish remount" <| fun () ->
 
         if not (obj.ReferenceEquals(adopted, el.querySelector "button")) then
             failwith "the second mount rebuilt the element instead of patching it"
+
+        document.body.removeChild el |> ignore
+    }
+
+describe "Elmish remount across versions" <| fun () ->
+
+    // What a hot update hands the new program: a model made by the previous version of
+    // the module. Left as it is, every comparison the new code makes against it is false
+    // -- the board would show every card in no lane at all -- with no error to say why.
+    it "rebuilds the model it carries over in the new code's types" <| fun () -> promise {
+        let el = host ()
+
+        let previous: Before.Model =
+            { Cards = [ { Id = 1; Lane = Before.Backlog }; { Id = 2; Lane = Before.Shipped }; { Id = 3; Lane = Before.Backlog } ]
+              Current = Some Before.Shipped
+              Pair = Before.Backlog, 4
+              Lanes = [| Before.Shipped |]
+              ByLane = Map.ofList [ Before.Backlog, 2 ]
+              Tag = Before.Tag "t" }
+
+        // The previous version's program, on the model it had reached.
+        Program.mkProgram (fun () -> unbox<After.Model> previous, Cmd.none) (fun () model -> model, Cmd.none) boardView
+        |> Program.withLitOnElement el
+        |> Program.run
+
+        do! Promise.sleep 50
+
+        // The new version, whose own init would show something else entirely.
+        let fresh: After.Model =
+            { Cards = []
+              Current = None
+              Pair = After.Shipped, 0
+              Lanes = [| After.Backlog |]
+              ByLane = Map.empty
+              Tag = After.Tag "fresh" }
+
+        Program.mkProgram (fun () -> fresh, Cmd.none) (fun () model -> model, Cmd.none) boardView
+        |> Program.withLitOnElement el
+        |> Program.run
+
+        do! Promise.sleep 50
+
+        let shown = (el.querySelector ".n").textContent
+        let expected = "2 true true true 2 true true"
+
+        if shown <> expected then
+            failwith $"the carried-over model does not compare equal to the new code's values (shows \"{shown}\", expected \"{expected}\")"
+
+        document.body.removeChild el |> ignore
+    }
+
+    // A field the new code has and the old model does not: the restored model would be
+    // missing it, and the first thing to read it would fail far from here. Starting from
+    // init loses the state on screen, which is what a reload would have done anyway.
+    it "starts from init when the model it would carry over does not fit the new code" <| fun () -> promise {
+        let el = host ()
+
+        let warnings = ResizeArray()
+        let realWarn = console?warn
+        console?warn <- fun (message: obj) -> warnings.Add message
+
+        let view (model: After.Small) (_: unit -> unit) =
+            html $"""<p class="n">{model.Count} {model.Label.ToUpper()}</p>"""
+
+        Program.mkProgram (fun () -> unbox<After.Small> ({ Count = 5 }: Before.Small), Cmd.none) (fun () model -> model, Cmd.none) (fun model _ ->
+            html $"""<p class="n">{model.Count}</p>""")
+        |> Program.withLitOnElement el
+        |> Program.run
+
+        do! Promise.sleep 50
+
+        Program.mkProgram (fun () -> ({ Count = 0; Label = "init" }: After.Small), Cmd.none) (fun () model -> model, Cmd.none) view
+        |> Program.withLitOnElement el
+        |> Program.run
+
+        do! Promise.sleep 50
+        console?warn <- realWarn
+
+        let shown = (el.querySelector ".n").textContent
+
+        if shown <> "0 INIT" then
+            failwith $"the second mount did not start from init (shows \"{shown}\")"
+
+        if warnings.Count <> 1 then
+            failwith $"expected one warning saying why the model was dropped, got {warnings.Count}"
 
         document.body.removeChild el |> ignore
     }

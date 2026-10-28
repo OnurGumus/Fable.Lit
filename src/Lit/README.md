@@ -50,6 +50,9 @@ let Counter () =
   what `useEffectOnce` set up, which upstream disposes and never restores.
 - Effects are set up once per arrival, and not at all for a component that has already
   left by the time they would run.
+- A `LitElement` whose module runs again in a development build, as a hot update does
+  through an entry module that accepts its own updates, draws with the new code: the
+  elements already on the page are handed the new render function and draw again.
 
 ## Why "Unofficial"
 

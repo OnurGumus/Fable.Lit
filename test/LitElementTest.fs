@@ -104,6 +104,18 @@ let Unadopted () =
     let _ = LitElement.init ()
     SharedViews.counter { SharedViews.Count = 0 } ignore
 
+/// A component, and the same component as the next version of its module defines it.
+/// The second is not decorated: the test hands it to the decorator itself, which is all
+/// that running the module again does.
+[<LitElement("fel-redrawn")>]
+let Redrawn () =
+    let _ = LitElement.init ()
+    html $"""<p class="v">first</p>"""
+
+let private redrawnNext () =
+    let _ = LitElement.init ()
+    html $"""<p class="v">second</p>"""
+
 describe "LitElement" <| fun () ->
     it "fable-element renders" <| fun () -> promise {
         use! el = render_html $"<fable-element></fable-element>"
@@ -245,6 +257,41 @@ describe "A component the server drew, and nobody adopts" <| fun () ->
 
         if colourOf (el.shadowRoot.querySelector ".n") <> "rgb(1, 2, 3)" then
             failwith "the stylesheet that was sent ahead no longer applies"
+
+        Browser.Dom.document.body.removeChild holder |> ignore
+    }
+
+// A hot update that reaches a component's module through one that accepts its own
+// updates runs the module again, and with it the decorator. The element cannot be
+// defined twice, so without this the page would keep drawing it with the first version,
+// against data an Elmish program may already have rebuilt for the second.
+describe "A component whose module runs again" <| fun () ->
+    it "redraws what is on the page, and draws what comes later, with the new code" <| fun () -> promise {
+        let holder = Browser.Dom.document.createElement "div"
+        Browser.Dom.document.body.appendChild holder |> ignore
+        holder.innerHTML <- "<fel-redrawn></fel-redrawn>"
+        let before: Browser.Types.HTMLElement = holder?firstElementChild
+        do! elementUpdated before
+
+        let shown (el: Browser.Types.HTMLElement) = el.shadowRoot.querySelector(".v").textContent
+
+        if shown before <> "first" then
+            failwith $"expected the first version to draw first, got {shown before}"
+
+        LitElementAttribute("fel-redrawn").Decorate(unbox redrawnNext, unbox (createObj [ "name" ==> "Redrawn" ]))
+        |> ignore
+
+        do! Promise.sleep 50
+
+        if shown before <> "second" then
+            failwith $"the element already on the page still draws with the first version ({shown before})"
+
+        holder.insertAdjacentHTML ("beforeend", "<fel-redrawn></fel-redrawn>")
+        let later: Browser.Types.HTMLElement = holder?lastElementChild
+        do! elementUpdated later
+
+        if shown later <> "second" then
+            failwith $"an element added afterwards draws with the first version ({shown later})"
 
         Browser.Dom.document.body.removeChild holder |> ignore
     }
