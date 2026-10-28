@@ -218,6 +218,49 @@ describe "Differential" <| fun () ->
             failwith $"expected exactly one rendered icon, found {svgs}"
     }
 
+    // The module that adopted the markup, running again: a hot update does exactly this.
+    // By then the container holds lit's render, not the server's markup, and lit refuses
+    // to hydrate it. Treated as a refusal, the fallback emptied the container out from
+    // under the part lit had left on it, and the render after that threw.
+    it "adopting what lit already renders updates it in place" <| fun () -> promise {
+        let! expected = fetchJson "/test/server-rendered.json"
+
+        let mutable first = 0
+        let mutable second = 0
+
+        let host = document.createElement "div"
+        document.body.appendChild host |> ignore
+        host.innerHTML <- (expected?("clickable#hydratable"): string)
+
+        Hydrate.adopt host (SharedViews.clickable (fun () -> first <- first + 1))
+        let adopted = host.querySelector "button"
+
+        let warnings = ResizeArray()
+        let realWarn = Browser.Dom.console?warn
+        Browser.Dom.console?warn <- fun (message: obj) -> warnings.Add message
+
+        try
+            Hydrate.adopt host (SharedViews.clickable (fun () -> second <- second + 1))
+        finally
+            Browser.Dom.console?warn <- realWarn
+
+        (host.querySelector "button" :?> Browser.Types.HTMLElement).click ()
+        do! Promise.sleep 0
+
+        let buttons = host.querySelectorAll("button").length
+        let kept = obj.ReferenceEquals(adopted, host.querySelector "button")
+        document.body.removeChild host |> ignore
+
+        if warnings.Count > 0 then
+            failwith $"the second adopt treated lit's own render as a refusal ({warnings.Count} warning(s))"
+
+        if buttons <> 1 || not kept then
+            failwith $"the second adopt rebuilt the container ({buttons} button(s), same node: {kept})"
+
+        if second <> 1 || first <> 0 then
+            failwith $"the click reached the wrong handler (first {first}, second {second})"
+    }
+
     // Elmish over server-rendered markup. The point is the first render: it adopts the
     // DOM the server sent instead of replacing it, and everything after it is an
     // ordinary Elmish render into DOM lit owns by then.

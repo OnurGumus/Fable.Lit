@@ -53,6 +53,11 @@ let Counter () =
 - A `LitElement` whose module runs again in a development build, as a hot update does
   through an entry module that accepts its own updates, draws with the new code: the
   elements already on the page are handed the new render function and draw again.
+- `Hydrate.adopt` on a container lit already renders into renders into it, which is what
+  the module that adopted it does when a hot update runs it again.
+- `HMR.disposeOnUpdate` undoes what a module set up at its top level (a subscription, a
+  listener) when a hot update replaces the module, so it is not set up twice. It works
+  around Vite keeping only one dispose callback per module.
 
 ## Why "Unofficial"
 

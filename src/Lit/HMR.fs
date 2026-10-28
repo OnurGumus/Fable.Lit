@@ -127,6 +127,50 @@ type HMR =
         with _ -> ()
 #endif
 
+    /// Disposes this when a hot update replaces the module it is called from.
+    ///
+    /// For what a module sets up at its top level that is neither an Elmish program nor a
+    /// component -- a store subscription, a listener on the document, a connection
+    /// tracker -- in a module that runs again on a hot update, as one that calls
+    /// `acceptSelf` does. Programs and components hand over to their next version by
+    /// themselves. Anything else is set up a second time beside the first, and from then
+    /// on both answer every change: written once, it is undone before that happens.
+    ///
+    /// Vite keeps one dispose callback per module, so a second registration would replace
+    /// the first. Everything a module hands here goes into one list in the module's hot
+    /// data instead, and the callback disposes the whole list; registering it again
+    /// replaces it with the same thing. webpack keeps every callback, so there each one
+    /// disposes its own.
+    ///
+    /// Does nothing in a non-debug build, or under a dev server that implements neither
+    /// Vite's nor webpack's hot-update API: there the module runs once, and what it set
+    /// up lasts as long as the page.
+    static member inline disposeOnUpdate(disposable: IDisposable): unit =
+#if !DEBUG
+        ()
+#else
+        try
+            if HMR.hot.active then
+                let mutable held: ResizeArray<IDisposable> = unbox (HMR.hot.getData "fableLitDisposeOnUpdate")
+
+                if isNull held then
+                    held <- ResizeArray()
+                    HMR.hot.setData("fableLitDisposeOnUpdate", held)
+
+                held.Add disposable
+
+                HMR.hot.dispose(fun data ->
+                    let held: ResizeArray<IDisposable> = data?fableLitDisposeOnUpdate
+
+                    for disposable in held do
+                        try disposable.Dispose() with _ -> ()
+
+                    held.Clear())
+            elif HMR.webpackHot.active then
+                HMR.webpackHot.dispose(fun _ -> disposable.Dispose())
+        with _ -> ()
+#endif
+
     /// Call this in module/files you want to activate HMR for when using non-bundling dev servers like [Vite](https://vitejs.dev/) or [Snowpack](https://www.snowpack.dev/).
     ///
     /// The HMR token must be assigned to a **static private** value and shared with HookComponents with `Hook.useHmr`.

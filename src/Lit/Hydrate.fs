@@ -60,19 +60,28 @@ module Hydrate =
     /// The container is anything lit can render into, which is wider than an element: a
     /// shadow root is a DocumentFragment, and markup that arrived as
     /// `<template shadowrootmode="open">` is adopted there rather than on its host.
+    ///
+    /// A container lit already renders into is rendered into, not adopted. That is the
+    /// module that adopted it running a second time, which is what a hot update is: the
+    /// server's markup is gone by then, and lit refuses to hydrate its own render. Taken
+    /// for a refusal, the fallback below would empty the container out from under the
+    /// part lit keeps on it, and the render after that would throw.
     let adopt (container: #Node) (template: TemplateResult) =
-        match refusal (container :> Node) template (box {|  |}) with
-        | null -> ()
-        | reason ->
-            Browser.Dom.console.warn ("lit could not adopt the server markup; rendering instead.", reason)
-
-            // Emptied first. lit's `render` inserts its part into a container rather than
-            // replacing what is already there, so rendering over markup it has just
-            // refused leaves both copies on the page: the server's, which nothing is
-            // wired to, and the client's underneath it. The fallback exists to make a
-            // mismatch harmless, and a page shown twice is not harmless.
-            empty container
+        if not (isNull ((box container)?("_$litPart$"))) then
             Lit.render container template
+        else
+            match refusal (container :> Node) template (box {|  |}) with
+            | null -> ()
+            | reason ->
+                Browser.Dom.console.warn ("lit could not adopt the server markup; rendering instead.", reason)
+
+                // Emptied first. lit's `render` inserts its part into a container rather than
+                // replacing what is already there, so rendering over markup it has just
+                // refused leaves both copies on the page: the server's, which nothing is
+                // wired to, and the client's underneath it. The fallback exists to make a
+                // mismatch harmless, and a page shown twice is not harmless.
+                empty container
+                Lit.render container template
 
     /// Lets every component adopt the shadow root the server drew for it.
     ///

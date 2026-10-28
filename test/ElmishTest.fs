@@ -171,6 +171,19 @@ describe "Elmish remount" <| fun () ->
     // line of an application's startup where a throw takes the whole page with it.
     it "accepting hot updates is harmless where nothing implements them" <| fun () -> promise { HMR.acceptSelf () }
 
+    // The same place, for what a module hands over to be undone on the next update: with
+    // no dev server there is no next update, so it must neither throw nor dispose early.
+    it "handing something to a hot update is harmless where nothing implements them" <| fun () -> promise {
+        let mutable disposed = false
+
+        { new IDisposable with
+            member _.Dispose() = disposed <- true }
+        |> HMR.disposeOnUpdate
+
+        if disposed then
+            failwith "disposed with no hot update to replace the module"
+    }
+
     // Adoption is a one-time act, and the second mount is not the one it is for. lit
     // refuses outright to hydrate a container it is already rendering into -- "container
     // already contains a live render" -- so a mount that asked would fall back to
