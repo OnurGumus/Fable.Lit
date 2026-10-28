@@ -112,9 +112,11 @@ let Redrawn () =
     let _ = LitElement.init ()
     html $"""<p class="v">first</p>"""
 
+#if DEBUG
 let private redrawnNext () =
     let _ = LitElement.init ()
     html $"""<p class="v">second</p>"""
+#endif
 
 describe "LitElement" <| fun () ->
     it "fable-element renders" <| fun () -> promise {
@@ -261,6 +263,7 @@ describe "A component the server drew, and nobody adopts" <| fun () ->
         Browser.Dom.document.body.removeChild holder |> ignore
     }
 
+#if DEBUG
 // A hot update that reaches a component's module through one that accepts its own
 // updates runs the module again, and with it the decorator. The element cannot be
 // defined twice, so without this the page would keep drawing it with the first version,
@@ -295,3 +298,4 @@ describe "A component whose module runs again" <| fun () ->
 
         Browser.Dom.document.body.removeChild holder |> ignore
     }
+#endif
