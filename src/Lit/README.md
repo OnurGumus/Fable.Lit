@@ -58,6 +58,11 @@ let Counter () =
 - `HMR.disposeOnUpdate` undoes what a module set up at its top level (a subscription, a
   listener) when a hot update replaces the module, so it is not set up twice. It works
   around Vite keeping only one dispose callback per module.
+- `ViewTransition.dispatch "kind" dispatch msg` sends a message inside a document view
+  transition, so the page animates the change. Transitions queue rather than cut each
+  other short, the root carries `data-transition="kind"` while one runs so CSS can name
+  elements for it, and a browser without them, or a reader asking for reduced motion,
+  gets the change unanimated.
 
 ## Why "Unofficial"
 

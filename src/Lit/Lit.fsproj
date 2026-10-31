@@ -25,6 +25,7 @@
     <Compile Include="HMR.fs" />
     <Compile Include="Hook.fs" />
     <Compile Include="LitElement.fs" />
+    <Compile Include="ViewTransition.fs" />
     <!-- Opt-in, and the only file that touches @lit-labs/ssr-client. -->
     <Compile Include="Hydrate.fs" />
   </ItemGroup>
