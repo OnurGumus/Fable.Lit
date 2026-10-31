@@ -94,6 +94,40 @@ If the view hands the component a property (`.count={model.Count}`), the propert
 in the HTML, so the component is marked `defer-hydration` and waits: hydrating the view
 takes the mark off and sets the property in the same pass.
 
+## Serving the page its code
+
+The page needs its client code from one of two places: the bundle in wwwroot in
+production, or a dev server (Vite) started alongside under `npm run dev`, which passes
+`--hmr`. `LitClient` reads the flag and wires up either:
+
+```fsharp
+let client = LitClient.fromArgs "http://localhost:5173" args
+let builder = WebApplication.CreateBuilder client.Args // without --hmr
+builder.AddLitClient client |> ignore
+let app = builder.Build()
+app.UseLitClient client |> ignore
+
+app.MapGet("/", Func<IResult>(fun () ->
+    Page()
+        .Board(toHydratableNode (Board.view model ignore))
+        .Scripts(client.Scripts)
+        .Render()
+    |> LitResults.page))
+```
+
+Under `--hmr`:
+
+- Whatever routing does not match goes to the dev server. The app's own routes never do.
+- The proxy waits for the dev server to answer before it forwards anything. The page still
+  renders immediately; only the request for its code waits.
+- There are no static files. On a case-insensitive disk `/App.js` would find
+  `wwwroot/app.js` and the page would run the last build, ignoring every edit.
+- The server stops at once when asked to, so a restarter's next server can bind the port.
+
+`client.Scripts` is the dev server's client and `/App.js` under `--hmr`, and `/app.js`
+otherwise; a record update changes either path. `LitResults.page` puts back the doctype
+HtmlTypeProvider leaves out, without which the browser uses quirks mode.
+
 ## What it refuses
 
 Anything it cannot render the way lit would raises `UnsupportedTemplateValue` rather than
@@ -110,6 +144,7 @@ There is a worked example at
 [LitHydrationDemo](https://github.com/OnurGumus/LitHydrationDemo).
 
 This package has no Fable dependency: it is ordinary .NET, referenced by the server project.
+It needs ASP.NET Core, for `LitClient`.
 
 ## Why "Unofficial"
 

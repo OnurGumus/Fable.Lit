@@ -8,6 +8,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="Render.fs" />
+    <Compile Include="Hosting.fs" />
   </ItemGroup>
   <ItemGroup>
     <!-- The hydration internals (node indices, the digest) are diagnostics, not API:
@@ -20,5 +21,12 @@
          rendered island is a Node, which is exactly what a page template's hole takes,
          so the two systems meet at a type that already exists rather than at a string. -->
     <PackageReference Include="HtmlTypeProvider" Version="0.9.1" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- For Hosting.fs, which serves a page its client code: wwwroot in production, the
+         dev server under hot reload. Every app this renders for is an ASP.NET app, so the
+         framework is already there; the proxy to the dev server is the one package. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Microsoft.AspNetCore.SpaServices.Extensions" Version="10.0.11" />
   </ItemGroup>
 </Project>
