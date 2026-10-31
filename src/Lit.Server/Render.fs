@@ -765,6 +765,22 @@ module Server =
               Values = [| box (items :> seq<TemplateResult>) |]
               Kind = 2 }
 
+        /// Renders a list of templates in order, each keyed by `getId`, so that in the
+        /// browser an item's element moves with it rather than being reused for another.
+        ///
+        /// The markup is `ofList`'s, and has to be. lit's repeat, adopting markup with
+        /// nothing drawn yet, has no keys to compare and hands back the items as a plain
+        /// iterable, which hydrate then reads the way it reads any other. The keys only
+        /// matter from the next render on, and that render is lit's.
+        static member mapUnique (getId: 'T -> string) (template: 'T -> TemplateResult) (items: 'T seq) : TemplateResult =
+            ignore getId
+            Lit.ofList (items |> Seq.map template |> List.ofSeq)
+
+        /// `mapUnique`, with the item's index as well.
+        static member mapiUnique (getId: 'T -> string) (template: int -> 'T -> TemplateResult) (items: 'T seq) : TemplateResult =
+            ignore getId
+            Lit.ofList (items |> Seq.mapi template |> List.ofSeq)
+
         /// The shadow root of the component this hole comes first inside, drawn in
         /// advance.
         ///

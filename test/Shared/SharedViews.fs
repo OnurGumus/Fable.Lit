@@ -2,7 +2,7 @@
 /// against Lit.Server. Neither copy knows which it is.
 ///
 /// This file is the contract. It may only use the surface both sides implement --
-/// `html`, `Ev`, `Lit.classes`, `Lit.ofList`, `Lit.nothing` -- and nothing from
+/// `html`, `Ev`, `Lit.classes`, `Lit.ofList`, `Lit.mapUnique`, `Lit.nothing` -- and nothing from
 /// Browser.Types, no hooks, no `document`. If it stops compiling on one side, the two
 /// APIs have drifted, which is the thing the differential test exists to catch.
 module SharedViews
@@ -30,6 +30,11 @@ let grid (items: Item list) =
 
     html
         $"""<div class="card">{toolbar false true}<table class="item-table"><tbody>{Lit.ofList (items |> List.map row)}</tbody></table>{note}</div>"""
+
+/// The rows keyed by name, so lit moves a row's element with its item rather than
+/// redrawing whichever item lands in its place.
+let keyedRows (items: Item list) =
+    html $"""<table class="item-table"><tbody>{Lit.mapUnique (fun (item: Item) -> item.Name) row items}</tbody></table>"""
 
 /// Node indices are counted over elements and comments, and these two exist to prove
 /// that the counting is right rather than merely plausible: the bound element sits after
@@ -98,6 +103,8 @@ let cases: (string * TemplateResult) list =
       "row-with-markup", row { Name = "<script>alert('x')</script>"; Qty = 1 }
       "grid-empty", grid []
       "grid", grid [ { Name = "Crate"; Qty = 40 }; { Name = "Pallet"; Qty = 2 } ]
+      "keyed-rows-empty", keyedRows []
+      "keyed-rows", keyedRows [ { Name = "Crate"; Qty = 40 }; { Name = "Pallet"; Qty = 2 } ]
       "after-closing-tag", afterClosingTag "wide"
       "after-comment", afterComment "tall"
       "clickable", clickable ignore

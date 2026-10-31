@@ -55,6 +55,11 @@ let ``a list of templates renders in order`` () =
     Assert.Equal("<ul><li>1</li><li>2</li><li>3</li></ul>", render (html $"<ul>{Lit.ofList rows}</ul>"))
 
 [<Fact>]
+let ``a keyed list hands each template its index`` () =
+    let rows = [ "a"; "b" ] |> Lit.mapiUnique id (fun i s -> html $"<li>{i}{s}</li>")
+    Assert.Equal("<ul><li>0a</li><li>1b</li></ul>", render (html $"<ul>{rows}</ul>"))
+
+[<Fact>]
 let ``nothing renders nothing`` () =
     Assert.Equal("<p></p>", render (html $"<p>{Lit.nothing}</p>"))
 

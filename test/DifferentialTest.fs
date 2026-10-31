@@ -190,6 +190,46 @@ describe "Differential" <| fun () ->
         document.body.removeChild host |> ignore
     }
 
+    // A keyed list is what makes an element belong to its item for life. Adopting one
+    // runs lit's repeat before anything is drawn, which hands back the items as a plain
+    // iterable, so the server's markup is the same as for `Lit.ofList`. What differs is
+    // every render after it: a row that moves takes its own element along, where
+    // `Lit.ofList` would leave the elements in place and redraw the items into them.
+    it "lit adopts a keyed list and then moves each row with its item" <| fun () -> promise {
+        let! expected = fetchJson "/test/server-rendered.json"
+
+        let crate = { SharedViews.Name = "Crate"; SharedViews.Qty = 40 }
+        let pallet = { SharedViews.Name = "Pallet"; SharedViews.Qty = 2 }
+
+        let host = document.createElement "div"
+        document.body.appendChild host |> ignore
+        host.innerHTML <- (expected?("keyed-rows#hydratable"): string)
+
+        let rows () =
+            let found = host.querySelectorAll "tr"
+            [ for i in 0 .. int found.length - 1 -> found.[i] ]
+
+        let served = rows ()
+
+        if served.Length <> 2 then
+            failwith $"the server markup should contain two rows, not {served.Length}"
+
+        hydrate (box (SharedViews.keyedRows [ crate; pallet ])) (host :> Browser.Types.Node) None
+
+        if not (List.forall2 (fun a b -> obj.ReferenceEquals(a, b)) served (rows ())) then
+            failwith "hydrate replaced the server's rows instead of adopting them"
+
+        Lit.render host (SharedViews.keyedRows [ pallet; crate ])
+        let moved = rows ()
+        document.body.removeChild host |> ignore
+
+        if not (obj.ReferenceEquals(moved.[0], served.[1]) && obj.ReferenceEquals(moved.[1], served.[0])) then
+            failwith "the rows stayed where they were and were redrawn, instead of moving with their items"
+
+        if moved.[0].textContent <> "Pallet2" then
+            failwith $"the first row shows {moved.[0].textContent}, not Pallet"
+    }
+
     // The failure path, which is the one that matters most: it runs when something is
     // already wrong, and it must not make things worse. lit's render does not clear the
     // container it is given, so a fallback that simply renders would leave the server's
