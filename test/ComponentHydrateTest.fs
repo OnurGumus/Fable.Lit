@@ -60,6 +60,15 @@ let AdoptCounter () =
 
     SharedViews.counter { SharedViews.Count = count } (fun _ -> setCount (count + 1))
 
+/// Has as its own the stylesheet the server sends, laid out differently.
+[<LitElement("adopt-matching")>]
+let AdoptMatching () =
+    LitElement.init (fun config ->
+        config.styles <- [ Lit.unsafeCSS "\n    .n   {\n        color: rgb(1, 2, 3);\n    }\n" ])
+    |> ignore
+
+    SharedViews.counter { SharedViews.Count = 0 } ignore
+
 /// What a hook component set up and tore down, in order.
 let private tenancy = ResizeArray<string>()
 
@@ -209,6 +218,32 @@ describe "A component the server drew" <| fun () ->
 
         if styleOf n "fontWeight" <> "700" then
             failwith $"""the component's own stylesheet was never adopted ({styleOf n "fontWeight"})"""
+
+        document.body.removeChild holder |> ignore
+    }
+
+    // When the server sent the component's own stylesheet, the adopted one says the same
+    // and the server's has nothing left to do. Kept, it is a second copy in every root
+    // for the life of the page, and one a hot update cannot reach: a rule deleted from
+    // the component goes on applying from it until the page is reloaded.
+    it "lets go of the stylesheet the server sent when it is the component's own" <| fun () -> promise {
+        let! expected = fetchJson "/test/server-rendered.json"
+
+        let shadow: string = expected?("counter#shadow")
+        let holder, el, root = arrive $"<adopt-matching>{shadow}</adopt-matching>"
+
+        if isNull (root.querySelector "style") then
+            failwith "the server's markup carried no stylesheet to begin with"
+
+        do! connect holder el
+
+        if not (isNull (root.querySelector "style")) then
+            failwith "the server's copy of the component's own stylesheet is still in the root"
+
+        let n = root.querySelector ".n"
+
+        if styleOf n "color" <> "rgb(1, 2, 3)" then
+            failwith $"""letting go of the server's stylesheet left the component unstyled ({styleOf n "color"})"""
 
         document.body.removeChild holder |> ignore
     }

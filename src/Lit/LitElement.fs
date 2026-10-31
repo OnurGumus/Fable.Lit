@@ -277,7 +277,6 @@ module internal ElementAdoption =
     [<Emit("Object.defineProperty($0, 'observedAttributes', { configurable: true, get() { let from = Object.getPrototypeOf($0), inherited; while (from && !(inherited = Object.getOwnPropertyDescriptor(from, 'observedAttributes'))) from = Object.getPrototypeOf(from); const listed = inherited?.get?.call(this) ?? []; return listed.includes('defer-hydration') ? listed : [...listed, 'defer-hydration']; } })")>]
     let observeDeferHydration (elementClass: obj) : unit = jsNative
 
-#if DEBUG
     /// The stylesheet the server wrote into a root, as text: the style elements ahead of
     /// the root part marker, which is where `toShadowRootNode` and `Lit.shadowRoot` put
     /// it. Null when there is none. A style element after the marker is part of the
@@ -298,6 +297,30 @@ module internal ElementAdoption =
     [<Emit("$0.replace(/\\s+/g, ' ').trim()")>]
     let private laidOutPlainly (css: string) : string = jsNative
 
+    /// The style elements `stylesheetSent` reads, taken out of the root.
+    [<Emit("(() => { for (const node of [...$0.childNodes]) { if (node.nodeType === 8 && node.data.startsWith('lit-part')) break; if (node.localName === 'style') node.remove(); } })()")>]
+    let private removeStylesheetSent (root: ShadowRoot) : unit = jsNative
+
+    /// Takes the server's stylesheet out of the root once the component's own is adopted,
+    /// when the two are the same rules.
+    ///
+    /// The server's is there for the time before any script has run, and once the
+    /// component has adopted its own that time is over: kept, it is a second copy of the
+    /// same rules in every root the server drew, for the life of the page, and one a hot
+    /// update cannot reach. A rule deleted from the component goes on applying from it
+    /// until the page is reloaded. In the same task as the adoption, so no frame is ever
+    /// drawn with neither.
+    ///
+    /// A stylesheet that is not the component's own is left where it is. Sending one is
+    /// allowed, and whoever sent it meant it to apply.
+    let releaseStylesheetSent (element: obj) (root: ShadowRoot) =
+        match stylesheetOwned element, stylesheetSent root with
+        | null, _
+        | _, null -> ()
+        | owned, sent when laidOutPlainly owned = laidOutPlainly sent -> removeStylesheetSent root
+        | _ -> ()
+
+#if DEBUG
     /// The tags this has already been said about. It is a statement about how a page
     /// was written, not about any one element on it.
     let private toldAbout = Collections.Generic.HashSet<string>()
@@ -380,10 +403,10 @@ type LitHookElement<'Props>(initProps: obj -> unit) =
     /// the root, and would render a second copy after all. Returned as it stands, the
     /// root is where both look.
     ///
-    /// The component's own stylesheets are adopted as they always are, alongside the
-    /// `<style>` the server wrote. The server's covers the time before any script has
-    /// run; the component's is the one a hot update replaces, and the only one there is
-    /// when the server sent the markup without styles. The same rules twice is harmless.
+    /// The component's own stylesheets are adopted as they always are. The `<style>` the
+    /// server wrote covered the time before any script had run; when it is the same rules
+    /// it goes, and the adopted one is all there is, as for a component nobody rendered in
+    /// advance. When it is something else it stays, alongside.
     member this.createRenderRoot() : obj =
         let root = this.shadowRoot
 
@@ -396,6 +419,7 @@ type LitHookElement<'Props>(initProps: obj -> unit) =
                 ElementAdoption.warnIfStylesheetsDiffer this root
 #endif
                 ElementAdoption.adoptOwnStyles this root
+                ElementAdoption.releaseStylesheetSent this root
                 _adopting <- true
                 box root
             | None ->
